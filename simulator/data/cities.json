@@ -1,0 +1,23 @@
+[
+  {"name": "Ho Chi Minh", "ip_range": "103.12.44.0"},
+  {"name": "Ha Noi", "ip_range": "113.161.72.0"},
+  {"name": "Da Nang", "ip_range": "115.73.208.0"},
+  {"name": "Can Tho", "ip_range": "171.224.180.0"},
+  {"name": "Hai Phong", "ip_range": "14.160.28.0"},
+  {"name": "Nha Trang", "ip_range": "118.69.135.0"},
+  {"name": "Hue", "ip_range": "116.108.64.0"},
+  {"name": "Bien Hoa", "ip_range": "125.235.12.0"},
+  {"name": "Thu Dau Mot", "ip_range": "14.162.190.0"},
+  {"name": "Vung Tau", "ip_range": "115.79.140.0"},
+  {"name": "Quy Nhon", "ip_range": "117.4.88.0"},
+  {"name": "Buon Ma Thuot", "ip_range": "171.244.96.0"},
+  {"name": "Da Lat", "ip_range": "113.185.32.0"},
+  {"name": "Phan Thiet", "ip_range": "115.75.112.0"},
+  {"name": "Long Xuyen", "ip_range": "171.232.16.0"},
+  {"name": "Thai Nguyen", "ip_range": "123.24.8.0"},
+  {"name": "Nam Dinh", "ip_range": "113.190.40.0"},
+  {"name": "Bac Ninh", "ip_range": "14.169.56.0"},
+  {"name": "Vinh", "ip_range": "113.176.128.0"},
+  {"name": "Ha Long", "ip_range": "115.78.200.0"}
+]
+
