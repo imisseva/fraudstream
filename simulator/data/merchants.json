@@ -1,0 +1,28 @@
+[
+  {"merchant_id": "mer_001", "name": "Apple Store Online", "category": "electronics", "risk_level": "medium", "country": "US"},
+  {"merchant_id": "mer_002", "name": "The Gioi Di Dong", "category": "electronics", "risk_level": "low", "country": "VN"},
+  {"merchant_id": "mer_003", "name": "FPT Shop", "category": "electronics", "risk_level": "low", "country": "VN"},
+  {"merchant_id": "mer_004", "name": "PNJ Jewelry & Gold", "category": "jewelry", "risk_level": "high", "country": "VN"},
+  {"merchant_id": "mer_005", "name": "Doji Gold & Gems", "category": "jewelry", "risk_level": "high", "country": "VN"},
+  {"merchant_id": "mer_006", "name": "Rolex Boutique SG", "category": "jewelry", "risk_level": "high", "country": "SG"},
+  {"merchant_id": "mer_007", "name": "Vietnam Airlines", "category": "travel", "risk_level": "medium", "country": "VN"},
+  {"merchant_id": "mer_008", "name": "Vietjet Air", "category": "travel", "risk_level": "medium", "country": "VN"},
+  {"merchant_id": "mer_009", "name": "Agoda Global", "category": "travel", "risk_level": "medium", "country": "SG"},
+  {"merchant_id": "mer_010", "name": "Booking.com", "category": "travel", "risk_level": "medium", "country": "US"},
+  {"merchant_id": "mer_011", "name": "Steam Games Store", "category": "gaming", "risk_level": "high", "country": "US"},
+  {"merchant_id": "mer_012", "name": "Garena Topup", "category": "gaming", "risk_level": "high", "country": "SG"},
+  {"merchant_id": "mer_013", "name": "PlayStation Network", "category": "gaming", "risk_level": "high", "country": "JP"},
+  {"merchant_id": "mer_014", "name": "Binance P2P Trading", "category": "crypto", "risk_level": "high", "country": "SG"},
+  {"merchant_id": "mer_015", "name": "WinMart Supermarket", "category": "supermarket", "risk_level": "low", "country": "VN"},
+  {"merchant_id": "mer_016", "name": "Co.opmart Nguyen Dinh Chieu", "category": "supermarket", "risk_level": "low", "country": "VN"},
+  {"merchant_id": "mer_017", "name": "GO! Mega Mall", "category": "supermarket", "risk_level": "low", "country": "VN"},
+  {"merchant_id": "mer_018", "name": "Petrolimex Station 01", "category": "gas_station", "risk_level": "low", "country": "VN"},
+  {"merchant_id": "mer_019", "name": "PV OIL Da Nang", "category": "gas_station", "risk_level": "low", "country": "VN"},
+  {"merchant_id": "mer_020", "name": "Shopee Marketplace", "category": "online_retail", "risk_level": "low", "country": "SG"},
+  {"merchant_id": "mer_021", "name": "Tiki Trading VN", "category": "online_retail", "risk_level": "low", "country": "VN"},
+  {"merchant_id": "mer_022", "name": "Lazada Express", "category": "online_retail", "risk_level": "low", "country": "VN"},
+  {"merchant_id": "mer_023", "name": "Uniqlo Vietnam", "category": "fashion", "risk_level": "low", "country": "VN"},
+  {"merchant_id": "mer_024", "name": "Zara Vincom Center", "category": "fashion", "risk_level": "low", "country": "VN"},
+  {"merchant_id": "mer_025", "name": "Amazon US Global", "category": "online_retail", "risk_level": "medium", "country": "US"}
+]
+

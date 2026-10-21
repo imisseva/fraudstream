@@ -13,8 +13,17 @@ except ImportError:
 
 
 class KafkaEventProducer:
-    def __init__(self, bootstrap_servers: str, topic: str, dry_run: bool = False):
-        self.topic = topic
+    def __init__(
+        self,
+        bootstrap_servers: str,
+        topic: Optional[str] = None,
+        topic_transactions: str = "transaction-events",
+        topic_clickstream: str = "clickstream-events",
+        dry_run: bool = False,
+    ):
+        self.default_topic = topic or topic_transactions
+        self.topic_transactions = topic_transactions
+        self.topic_clickstream = topic_clickstream
         self.dry_run = dry_run
         self.producer = None
 
@@ -37,17 +46,27 @@ class KafkaEventProducer:
         else:
             logger.debug(f"Delivered to {msg.topic()} [{msg.partition()}]")
 
-    async def send_event(self, event: Dict[str, Any]):
-        """Gửi 1 event vào Kafka"""
+    def resolve_topic(self, event: Dict[str, Any], explicit_topic: Optional[str] = None) -> str:
+        if explicit_topic:
+            return explicit_topic
+        event_type = event.get("event_type", "")
+        if event_type == "transaction":
+            return self.topic_transactions
+        return self.topic_clickstream
+
+    async def send_event(self, event: Dict[str, Any], topic: Optional[str] = None):
+        """Gửi 1 event vào Kafka theo topic tương ứng."""
+        target_topic = self.resolve_topic(event, topic)
+
         if self.dry_run:
-            logger.debug(f"[DRY RUN] {event.get('event_type')} user={event.get('user_id')}")
+            logger.debug(f"[DRY RUN -> {target_topic}] {event.get('event_type')} user={event.get('user_id')}")
             return
 
-        key = event.get("user_id", "unknown")
+        key = event.get("user_id", event.get("card_id", "unknown"))
         value = json.dumps(event, ensure_ascii=False)
         
         self.producer.produce(
-            topic=self.topic,
+            topic=target_topic,
             key=key.encode("utf-8"),
             value=value.encode("utf-8"),
             callback=self._delivery_callback,
@@ -61,4 +80,3 @@ class KafkaEventProducer:
 
     def close(self):
         self.flush()
-

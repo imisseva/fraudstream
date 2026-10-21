@@ -1,148 +1,186 @@
-# 🛡️ FraudStream: Real-time Clickstream & Fraud Simulator
+# 🛡️ FraudStream: Real-time Financial & Clickstream Fraud Simulator
 
-Hệ thống giả lập luồng sự kiện clickstream và giao dịch thương mại điện tử theo thời gian thực (Real-time Clickstream & Transaction Simulator), tích hợp cơ chế inject các kịch bản gian lận (Fraud Patterns) và gửi dữ liệu vào Apache Kafka.
+Hệ thống mô phỏng dữ liệu giao dịch tài chính & hành vi người dùng (Clickstream) theo thời gian thực chuẩn Enterprise, tích hợp **5 kịch bản gian lận thực tế (Scenarios A → E)**, cơ chế cấy lỗi kiểm thử khả năng chịu lỗi của pipeline (**Data Quality Glitches**), và đẩy dữ liệu đa topic vào **Apache Kafka**.
 
----
-
-## 📌 Tổng quan kiến trúc (Architecture)
-
-```
-+-------------------------------------------------------------+
-|                   FraudStream Simulator                     |
-|                                                             |
-|  +------------------+    +-------------------------------+  |
-|  | User Pool (1000) |    | Session Lifecycle Management  |  |
-|  | - 80% Normal     |--->| Landing -> Browsing ->        |  |
-|  | - 15% Suspicious |    | Product View -> Cart -> Buy   |  |
-|  | - 5% Fraudster   |    +---------------+---------------+  |
-|  +------------------+                    |                  |
-|                                          v                  |
-|  +-------------------+        +----------------------+      |
-|  | Fraud Generator   |        |   Event Generator    |      |
-|  | - Card testing    |        | - page_view, search  |      |
-|  | - Account takeover|        | - product_view       |      |
-|  | - Bot attack      |        | - add_to_cart, buy   |      |
-|  +---------+---------+        +----------+-----------+      |
-|            |                             |                  |
-|            +--------------+--------------+                  |
-|                           |                                 |
-|                           v                                 |
-|             +----------------------------+                  |
-|             | Traffic Pattern Controller |                  |
-|             | (Hourly Dynamic Multiplier)|                  |
-|             +-------------+--------------+                  |
-|                           |                                 |
-|                           v                                 |
-|             +----------------------------+                  |
-|             |    Kafka Event Producer    |                  |
-|             +-------------+--------------+                  |
-+---------------------------|---------------------------------+
-                            |
-                            v
-               +---------------------------+
-               | Apache Kafka (Port 9092)  |
-               | Topic: clickstream-events |
-               +-------------+-------------+
-                             |
-                             v
-               +---------------------------+
-               |   Kafka UI (Port 8080)    |
-               +---------------------------+
-```
+Hệ thống được thiết kế tối ưu làm nguồn dữ liệu mẫu (Data Source) cho các pipeline xử lý dòng (Stream Processing) bằng **Apache Spark Structured Streaming**, **Databricks**, hoặc **Apache Flink**.
 
 ---
 
-## 📂 Cấu trúc thư mục
+## 📌 Kiến trúc hệ thống (Architecture)
+
+```
++---------------------------------------------------------------------------------------+
+|                               FraudStream Simulator                                   |
+|                                                                                       |
+|  +----------------------------+                     +-------------------------------+ |
+|  |     5. Reference Data      |                     |      1. User Pool (1000)      | |
+|  | - merchants.json (25)      |                     | - Cards (1-3 cards / user)    | |
+|  | - countries.json (15)      |                     | - Spending baselines          | |
+|  | - devices.json (13)        |                     | - Normal / Suspicious / Fraud | |
+|  | - products.json (50)       |                     +---------------+---------------+ |
+|  +--------------+-------------+                                     |                 |
+|                 |                                                   v                 |
+|                 +-----------------------+---------------------------+                 |
+|                                         |                                             |
+|                     +-------------------+-------------------+                         |
+|                     |                                       |                         |
+|                     v                                       v                         |
+|      +-------------------------------+       +-------------------------------+        |
+|      | 2. Transaction Event Gen      |       | 3. Clickstream Event Gen      |        |
+|      | - Normal baseline spend       |       | - Funnel: page_view -> search |        |
+|      | - Scenario A: High Value      |       |   -> product_view -> add_cart |        |
+|      | - Scenario B: Velocity burst  |       +---------------+---------------+        |
+|      | - Scenario C: Geo anomaly     |                       |                        |
+|      | - Scenario D: Device sharing  |                       |                        |
+|      | - Scenario E: Repeat attempts |                       |                        |
+|      +--------------+----------------+                       |                        |
+|                     |                                        |                        |
+|                     v                                        |                        |
+|      +-------------------------------+                       |                        |
+|      | 4. Data Quality Injector      |                       |                        |
+|      | - Duplicate events            |                       |                        |
+|      | - Missing required fields     |                       |                        |
+|      | - Corrupt types (amount="abc")|                       |                        |
+|      | - Late-arriving timestamps    |                       |                        |
+|      | - Invalid timestamp format    |                       |                        |
+|      +--------------+----------------+                       |                        |
+|                     |                                        |                        |
+|                     +-------------------+--------------------+                        |
+|                                         |                                             |
+|                                         v                                             |
+|                           +----------------------------+                              |
+|                           | Traffic Pattern Controller |                              |
+|                           | (Hourly Dynamic Rate)      |                              |
+|                           +-------------+--------------+                              |
+|                                         |                                             |
+|                                         v                                             |
+|                           +----------------------------+                              |
+|                           | Kafka Producer (Router)    |                              |
+|                           +-------------+--------------+                              |
++-----------------------------------------|---------------------------------------------+
+                                          |
+                     +--------------------+--------------------+
+                     |                                         |
+                     v                                         v
+        +---------------------------+             +---------------------------+
+        | Topic: transaction-events |             | Topic: clickstream-events |
+        | (Financial Transactions)  |             | (Browsing Funnel Events)  |
+        +-------------+-------------+             +-------------+-------------+
+                      \                                         /
+                       \                                       /
+                        v                                     v
+                       +---------------------------------------+
+                       |          Kafka UI (:8080)             |
+                       +---------------------------------------+
+```
+
+---
+
+## 📂 Cấu trúc thư mục mới
 
 ```
 fraudstream/
-├── docker-compose.yml              # Kafka + Zookeeper + Kafka UI
-├── requirements.txt                # Python dependencies
+├── Dockerfile                      # Build image Python 3.11-slim
+├── .dockerignore
+├── docker-compose.yml              # Zookeeper + Kafka + Kafka UI + Simulator
+├── requirements.txt
 ├── README.md
 │
 ├── simulator/
 │   ├── __init__.py
-│   ├── main.py                     # Entrypoint điều khiển simulator
-│   ├── config.py                   # Cấu hình traffic, tỷ lệ user & Kafka
+│   ├── config.py                   # Cấu hình tỷ lệ fraud A-E, data quality, topics
+│   ├── main.py                     # Entrypoint điều khiển generator loop
 │   │
-│   ├── models/
+│   ├── models/                     # Data contracts & Schemas
 │   │   ├── __init__.py
-│   │   ├── user.py                 # User profiles (normal, suspicious, fraudster)
-│   │   ├── product.py              # Product catalog (50 items)
-│   │   └── session.py              # Quản lý trạng thái user session
+│   │   ├── user.py                 # User, Card, UserProfile
+│   │   ├── merchant.py             # Merchant, MerchantCatalog
+│   │   ├── transaction.py          # TransactionEvent (16 fields)
+│   │   ├── clickstream.py          # ClickstreamEvent
+│   │   ├── product.py              # Product, ProductCatalog
+│   │   └── session.py              # User browsing session
 │   │
-│   ├── generators/
+│   ├── scenarios/                  # Logic 5 kịch bản gian lận + Normal
 │   │   ├── __init__.py
-│   │   ├── event_generator.py      # Sinh event theo hành trình mua sắm
-│   │   ├── fraud_generator.py      # Inject các hành vi gian lận
-│   │   └── traffic_pattern.py      # Điều tiết tốc độ event theo giờ
+│   │   ├── normal.py               # Giao dịch thường ngày theo baseline
+│   │   ├── high_value.py           # Scenario A: Giao dịch lớn đột biến
+│   │   ├── velocity.py             # Scenario B: 8-12 txns/phút trên 1 thẻ
+│   │   ├── geographic_anomaly.py   # Scenario C: Impossible travel / multi-country
+│   │   ├── device_ip_sharing.py    # Scenario D: Nhiều user chung device/IP
+│   │   └── repeated_attempts.py    # Scenario E: Thử failed liên tục -> success
+│   │
+│   ├── generators/                 # Điều phối sinh dữ liệu
+│   │   ├── __init__.py
+│   │   ├── user_generator.py       # Tạo User pool kèm thẻ ngân hàng
+│   │   ├── transaction_generator.py# Điều phối scenarios & queue burst
+│   │   ├── clickstream_generator.py# Sinh sự kiện phễu duyệt web
+│   │   ├── data_quality_generator.py# Inject duplicates, corrupted types, late data
+│   │   └── traffic_pattern.py      # Điều tiết tốc độ theo giờ trong ngày
 │   │
 │   ├── producers/
 │   │   ├── __init__.py
-│   │   └── kafka_producer.py       # Kết nối và gửi batch event tới Kafka
+│   │   └── kafka_producer.py       # Route message tới đúng Kafka topic
 │   │
-│   └── data/
-│       ├── products.json           # 50 sản phẩm mẫu (electronics, gift cards, fashion...)
-│       ├── cities.json             # 20 thành phố Việt Nam + dải IP
-│       └── devices.json            # 13 profile thiết bị/trình duyệt
+│   ├── data/                       # Reference Data Catalogs
+│   │   ├── merchants.json          # 25 merchants (electronics, luxury, travel...)
+│   │   ├── countries.json          # 15 quốc gia + IP subnets + risk levels
+│   │   ├── devices.json            # 13 profile thiết bị có device_id
+│   │   ├── products.json           # 50 sản phẩm thương mại điện tử
+│   │   └── cities.json             # 20 thành phố Việt Nam
+│   │
+│   └── utils/
+│       ├── __init__.py
+│       ├── timestamps.py           # Tiện ích sinh UTC, late timestamps, bad dates
+│       └── random_utils.py         # Tiện ích sinh IP, ID, Gaussian distribution
 │
 └── tests/
     ├── __init__.py
-    └── test_simulator.py           # Unit tests kiểm tra schemas & logic
+    └── test_simulator.py           # 11 Unit tests bao phủ toàn bộ hệ thống
 ```
 
 ---
 
-## 📜 Cấu trúc Event (Event Schemas)
+## 📜 Data Contracts (Event Schemas)
 
-Tất cả event được serialize dưới dạng JSON và gửi đến Kafka topic `clickstream-events` với partition key là `user_id`.
+### 1. `transaction` Event (`topic: transaction-events`)
+Đúng 100% theo hợp đồng dữ liệu chuẩn phục vụ Fraud Detection:
 
-### 1. `page_view`
 ```json
 {
-  "event_id": "c1f1c6ad-62d0-4217-bf34-31518f8883e8",
-  "timestamp": "2026-10-21T02:00:00.123456+00:00",
-  "user_id": "user_a1b2c3d4",
-  "session_id": "sess_e5f6g7h8i9j0",
-  "ip_address": "103.12.44.87",
-  "device": {"type": "desktop", "os": "Windows", "browser": "Chrome", "fingerprint": "fp_win_chrome_01"},
-  "city": "Ho Chi Minh",
-  "user_type": "normal",
-  "event_type": "page_view",
-  "page": "/",
-  "referrer": "google.com"
+  "event_id": "evt_000001",
+  "event_type": "transaction",
+  "event_time": "2026-10-21T09:15:30Z",
+  "transaction_id": "txn_000001",
+  "user_id": "user_102",
+  "card_id": "card_501",
+  "merchant_id": "mer_001",
+  "amount": 12500000.0,
+  "currency": "VND",
+  "country": "VN",
+  "channel": "mobile",
+  "payment_method": "card",
+  "device_id": "dev_001",
+  "ip_address": "103.12.44.187",
+  "status": "success",
+  "is_fraud": 0
 }
 ```
 
-### 2. `search`
-```json
-{
-  "event_id": "d2f2c6ad-62d0-4217-bf34-31518f8883e9",
-  "timestamp": "2026-10-21T02:00:02.123456+00:00",
-  "user_id": "user_a1b2c3d4",
-  "session_id": "sess_e5f6g7h8i9j0",
-  "ip_address": "103.12.44.87",
-  "device": {"type": "desktop", "os": "Windows", "browser": "Chrome", "fingerprint": "fp_win_chrome_01"},
-  "city": "Ho Chi Minh",
-  "user_type": "normal",
-  "event_type": "search",
-  "query": "electronics",
-  "results_count": 28
-}
-```
+*Lưu ý:* Khi phát sinh gian lận, event có thể kèm thêm trường metadata `"fraud_scenario": "high_value"` (chỉ dùng để benchmark/đánh giá mô hình, không dùng làm input feature trong inference).
 
-### 3. `product_view`
+### 2. `clickstream` Event (`topic: clickstream-events`)
+
 ```json
 {
-  "event_id": "e3f3c6ad-62d0-4217-bf34-31518f8883ea",
-  "timestamp": "2026-10-21T02:00:05.123456+00:00",
-  "user_id": "user_a1b2c3d4",
-  "session_id": "sess_e5f6g7h8i9j0",
-  "ip_address": "103.12.44.87",
-  "device": {"type": "desktop", "os": "Windows", "browser": "Chrome", "fingerprint": "fp_win_chrome_01"},
-  "city": "Ho Chi Minh",
-  "user_type": "normal",
+  "event_id": "evt_000002",
   "event_type": "product_view",
+  "event_time": "2026-10-21T09:14:10Z",
+  "user_id": "user_102",
+  "session_id": "sess_a1b2c3d4",
+  "device_id": "dev_001",
+  "ip_address": "103.12.44.187",
+  "city": "Ho Chi Minh",
+  "user_type": "normal",
   "product_id": "P001",
   "product_name": "iPhone 16 Pro Max 256GB",
   "category": "electronics",
@@ -150,100 +188,70 @@ Tất cả event được serialize dưới dạng JSON và gửi đến Kafka t
 }
 ```
 
-### 4. `add_to_cart`
-```json
-{
-  "event_id": "f4f4c6ad-62d0-4217-bf34-31518f8883eb",
-  "timestamp": "2026-10-21T02:00:08.123456+00:00",
-  "user_id": "user_a1b2c3d4",
-  "session_id": "sess_e5f6g7h8i9j0",
-  "ip_address": "103.12.44.87",
-  "device": {"type": "desktop", "os": "Windows", "browser": "Chrome", "fingerprint": "fp_win_chrome_01"},
-  "city": "Ho Chi Minh",
-  "user_type": "normal",
-  "event_type": "add_to_cart",
-  "product_id": "P001",
-  "product_name": "iPhone 16 Pro Max 256GB",
-  "price": 34990000.0,
-  "quantity": 1,
-  "cart_total": 34990000.0
-}
-```
+---
 
-### 5. `purchase`
-```json
-{
-  "event_id": "a5f5c6ad-62d0-4217-bf34-31518f8883ec",
-  "timestamp": "2026-10-21T02:00:12.123456+00:00",
-  "user_id": "user_a1b2c3d4",
-  "session_id": "sess_e5f6g7h8i9j0",
-  "ip_address": "103.12.44.87",
-  "device": {"type": "desktop", "os": "Windows", "browser": "Chrome", "fingerprint": "fp_win_chrome_01"},
-  "city": "Ho Chi Minh",
-  "user_type": "normal",
-  "event_type": "purchase",
-  "order_id": "ORD_b4f910a2",
-  "items": [
-    {"product_id": "P001", "name": "iPhone 16 Pro Max 256GB", "price": 34990000.0, "qty": 1}
-  ],
-  "total_amount": 34990000.0,
-  "payment_method": "credit_card"
-}
-```
+## 🚨 5 Kịch bản gian lận chi tiết (Fraud Scenarios)
+
+| Scenario | Tên kịch bản | Chiều phân tích | Mô tả hành vi giả lập |
+| :--- | :--- | :--- | :--- |
+| **A** | **High Value Transaction** | Amount | Giao dịch số tiền đột biến gấp 8x - 25x mức tối đa thông thường của user tại các merchant vàng bạc, đá quý, đồ xa xỉ. |
+| **B** | **Transaction Velocity** | Time Window | Cùng một thẻ phát sinh liên tiếp 8 - 12 giao dịch chỉ trong vòng dưới 60 giây (burst quẹt thẻ tự động). |
+| **C** | **Geographic Anomaly** | Location / IP | Cùng một thẻ xuất hiện ở 2 quốc gia cách xa nhau trong khoảng thời gian không thể di chuyển ("Impossible Travel", ví dụ: vừa ở VN 5 phút sau đã ở US). |
+| **D** | **Device / IP Sharing** | Device / Network | Một thiết bị (`device_id`) hoặc 1 IP duy nhất thực hiện thanh toán cho nhiều `user_id` và `card_id` hoàn toàn khác nhau (mô hình Fraud Ring / thiết bị nuôi clone). |
+| **E** | **Repeated Attempts** | Behavior / Status | Một thẻ thực hiện liên tiếp 3 - 5 giao dịch bị từ chối (`status="failed"`), sau đó xuất hiện 1 giao dịch thành công giá trị lớn (`status="success"`). |
 
 ---
 
-## 🚨 Các kịch bản gian lận (Fraud Scenarios)
+## 💥 Các kịch bản dữ liệu lỗi (Data Quality Glitches)
 
-1. **Card Testing (`card_testing`)**: Fraudster thực hiện liên tiếp các đơn hàng thẻ quà tặng (`gift_cards`) với mệnh giá nhỏ đến lớn (10K - 1M) nhằm kiểm tra thẻ tín dụng đánh cắp còn hoạt động hay không.
-2. **Account Takeover (`account_takeover`)**: Tài khoản đột ngột thay đổi IP từ tỉnh thành khác, fingerprint thiết bị lạ, sau đó mua ngay các sản phẩm giá trị cao (iPhone, MacBook, PlayStation...).
-3. **Bot Attack (`bot_attack`)**: Bot gửi liên tục các request `product_view` với tần suất cao mà không qua phễu duyệt web thông thường.
+Để kiểm thử độ bền bỉ và khả năng xử lý ngoại lệ của Spark Streaming pipeline, Simulator tự động inject ~2% events bị lỗi:
+1. **Duplicate Events**: Gửi lại nguyên vẹn event đã từng phát sinh trong quá khứ để kiểm thử cơ chế Dedup.
+2. **Missing Required Fields**: Bỏ khuyết các trường bắt buộc như `card_id`, `amount`, `merchant_id` hoặc `user_id` để kiểm thử Dead Letter Queue (DLQ).
+3. **Corrupted Types**: Ép kiểu sai như `amount = "abc"` hoặc `"NaN"`.
+4. **Late-arriving Events**: `event_time` lùi về quá khứ 2 giờ đến 24 giờ so với hiện tại để kiểm thử **Spark Watermarking**.
+5. **Invalid Timestamp**: `event_time = "2026-99-99T99:99:99Z"` hoặc chuỗi lỗi.
 
 ---
 
-## 🚀 Hướng dẫn cài đặt & Khởi chạy
+## 🚀 Hướng dẫn vận hành
 
-### 1. Cài đặt Dependencies
-
-Khuyên dùng Python 3.11+:
-```powershell
-pip install -r requirements.txt
-```
-
-### 2. Khởi động Kafka & Kafka UI bằng Docker Compose
-
+### 1. Khởi động toàn bộ stack với Docker Compose:
 ```powershell
 docker compose up -d
 ```
-Sau khi khởi động:
-- **Kafka Broker**: `localhost:9092`
-- **Kafka UI**: `http://localhost:8080` (giao diện web trực quan để xem topic, message, consumer groups)
+Hệ thống sẽ khởi chạy:
+- **Zookeeper**: `:2181`
+- **Kafka**: `:9092` (host) và `:29092` (internal docker)
+- **Kafka UI**: [http://localhost:8080](http://localhost:8080)
+- **Simulator container**: Tự động chờ Kafka healthy rồi bắt đầu stream dữ liệu vào 2 topics: `transaction-events` và `clickstream-events`.
 
-### 3. Chạy Simulator
-
-#### Chế độ mặc định (gửi vào Kafka):
+### 2. Xem logs realtime của Simulator:
 ```powershell
-python -m simulator.main
+docker compose logs -f simulator
 ```
 
-#### Chế độ Dry-Run (chạy kiểm thử không cần Kafka Broker):
+Output mẫu:
+```
+16:37:12 | INFO  | Created 1000 users (normal: 800, suspicious: 150, fraudster: 50)
+16:37:12 | INFO  | Loaded 25 merchants and 15 countries reference data.
+16:37:12 | INFO  | 🚀 FraudStream Multi-Scenario Simulator started!
+16:37:14 | INFO  | 📊 Total: 100 | Txns: 59 (Fraud: 12) | Clicks: 41 | Glitches: 2 | Rate: 20.0 evt/s
+```
+
+### 3. Chạy độc lập trên Host (Development / Debug mode):
 ```powershell
+# Chạy với Kafka local
+python -m simulator.main
+
+# Chạy Dry-Run (không cần Kafka)
 python -m simulator.main --dry-run --rate 50 --max-events 200
 ```
-
-#### Các tham số tuỳ chỉnh (CLI Options):
-- `--bootstrap-servers`: Địa chỉ Kafka broker (mặc định: `localhost:9092`)
-- `--topic`: Tên Kafka topic (mặc định: `clickstream-events`)
-- `--rate`: Tốc độ sinh event cơ sở (events/giây, mặc định: `20.0`)
-- `--users`: Số lượng user giả lập trong pool (mặc định: `1000`)
-- `--dry-run`: Chạy thử nghiệm mà không kết nối Kafka
-- `--max-events`: Tự động dừng sau N events (thích hợp cho test)
 
 ---
 
 ## 🧪 Chạy Kiểm thử (Unit Tests)
 
+Bộ 11 unit tests kiểm tra toàn diện schema, 5 scenarios, data quality và routing:
 ```powershell
-pytest tests/ -v
+python -m pytest tests/ -v
 ```
-

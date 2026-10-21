@@ -1,0 +1,18 @@
+[
+  {"code": "VN", "name": "Vietnam", "currency": "VND", "risk_level": "low", "ip_subnets": ["103.12.44.0", "113.161.72.0", "115.73.208.0", "171.224.180.0"]},
+  {"code": "US", "name": "United States", "currency": "USD", "risk_level": "low", "ip_subnets": ["198.51.100.0", "192.0.2.0", "64.233.160.0", "172.217.0.0"]},
+  {"code": "SG", "name": "Singapore", "currency": "SGD", "risk_level": "low", "ip_subnets": ["203.116.1.0", "118.200.0.0", "103.252.0.0"]},
+  {"code": "JP", "name": "Japan", "currency": "JPY", "risk_level": "low", "ip_subnets": ["133.242.0.0", "153.120.0.0", "210.140.0.0"]},
+  {"code": "TH", "name": "Thailand", "currency": "THB", "risk_level": "medium", "ip_subnets": ["110.164.0.0", "171.96.0.0", "202.44.0.0"]},
+  {"code": "GB", "name": "United Kingdom", "currency": "GBP", "risk_level": "low", "ip_subnets": ["82.165.0.0", "151.236.0.0", "195.154.0.0"]},
+  {"code": "FR", "name": "France", "currency": "EUR", "risk_level": "low", "ip_subnets": ["51.15.0.0", "163.172.0.0", "195.154.120.0"]},
+  {"code": "DE", "name": "Germany", "currency": "EUR", "risk_level": "low", "ip_subnets": ["78.46.0.0", "144.76.0.0", "188.40.0.0"]},
+  {"code": "AU", "name": "Australia", "currency": "AUD", "risk_level": "low", "ip_subnets": ["139.130.0.0", "144.130.0.0", "203.2.0.0"]},
+  {"code": "CA", "name": "Canada", "currency": "CAD", "risk_level": "low", "ip_subnets": ["142.44.0.0", "198.27.0.0", "192.99.0.0"]},
+  {"code": "MY", "name": "Malaysia", "currency": "MYR", "risk_level": "medium", "ip_subnets": ["175.136.0.0", "203.106.0.0"]},
+  {"code": "ID", "name": "Indonesia", "currency": "IDR", "risk_level": "medium", "ip_subnets": ["103.10.0.0", "180.250.0.0"]},
+  {"code": "PH", "name": "Philippines", "currency": "PHP", "risk_level": "medium", "ip_subnets": ["112.198.0.0", "124.105.0.0"]},
+  {"code": "KR", "name": "South Korea", "currency": "KRW", "risk_level": "low", "ip_subnets": ["121.124.0.0", "175.200.0.0"]},
+  {"code": "NG", "name": "Nigeria", "currency": "NGN", "risk_level": "high", "ip_subnets": ["105.112.0.0", "197.210.0.0"]}
+]
+

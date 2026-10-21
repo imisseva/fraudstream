@@ -25,6 +25,12 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
@@ -37,3 +43,19 @@ services:
     environment:
       KAFKA_CLUSTERS_0_NAME: fraudstream
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+
+  simulator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fraudstream-simulator
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      BOOTSTRAP_SERVERS: kafka:29092
+      TOPIC_TRANSACTIONS: transaction-events
+      TOPIC_CLICKSTREAM: clickstream-events
+      RATE: "20"
+      USERS: "1000"

@@ -1,16 +1,15 @@
 [
-  {"type": "mobile", "os": "iOS", "browser": "Safari", "fingerprint": "fp_ios_safari_01"},
-  {"type": "mobile", "os": "iOS", "browser": "Chrome", "fingerprint": "fp_ios_chrome_02"},
-  {"type": "mobile", "os": "Android", "browser": "Chrome", "fingerprint": "fp_and_chrome_01"},
-  {"type": "mobile", "os": "Android", "browser": "Samsung Internet", "fingerprint": "fp_and_samsung_02"},
-  {"type": "mobile", "os": "Android", "browser": "Firefox", "fingerprint": "fp_and_firefox_03"},
-  {"type": "desktop", "os": "Windows", "browser": "Chrome", "fingerprint": "fp_win_chrome_01"},
-  {"type": "desktop", "os": "Windows", "browser": "Edge", "fingerprint": "fp_win_edge_02"},
-  {"type": "desktop", "os": "Windows", "browser": "Firefox", "fingerprint": "fp_win_firefox_03"},
-  {"type": "desktop", "os": "macOS", "browser": "Safari", "fingerprint": "fp_mac_safari_01"},
-  {"type": "desktop", "os": "macOS", "browser": "Chrome", "fingerprint": "fp_mac_chrome_02"},
-  {"type": "desktop", "os": "Linux", "browser": "Firefox", "fingerprint": "fp_lin_firefox_01"},
-  {"type": "tablet", "os": "iPadOS", "browser": "Safari", "fingerprint": "fp_ipad_safari_01"},
-  {"type": "tablet", "os": "Android", "browser": "Chrome", "fingerprint": "fp_tab_chrome_02"}
+  {"device_id": "dev_001", "type": "mobile", "os": "iOS", "browser": "Safari", "fingerprint": "fp_ios_safari_01"},
+  {"device_id": "dev_002", "type": "mobile", "os": "iOS", "browser": "Chrome", "fingerprint": "fp_ios_chrome_02"},
+  {"device_id": "dev_003", "type": "mobile", "os": "Android", "browser": "Chrome", "fingerprint": "fp_and_chrome_01"},
+  {"device_id": "dev_004", "type": "mobile", "os": "Android", "browser": "Samsung Internet", "fingerprint": "fp_and_samsung_02"},
+  {"device_id": "dev_005", "type": "mobile", "os": "Android", "browser": "Firefox", "fingerprint": "fp_and_firefox_03"},
+  {"device_id": "dev_006", "type": "desktop", "os": "Windows", "browser": "Chrome", "fingerprint": "fp_win_chrome_01"},
+  {"device_id": "dev_007", "type": "desktop", "os": "Windows", "browser": "Edge", "fingerprint": "fp_win_edge_02"},
+  {"device_id": "dev_008", "type": "desktop", "os": "Windows", "browser": "Firefox", "fingerprint": "fp_win_firefox_03"},
+  {"device_id": "dev_009", "type": "desktop", "os": "macOS", "browser": "Safari", "fingerprint": "fp_mac_safari_01"},
+  {"device_id": "dev_010", "type": "desktop", "os": "macOS", "browser": "Chrome", "fingerprint": "fp_mac_chrome_02"},
+  {"device_id": "dev_011", "type": "desktop", "os": "Linux", "browser": "Firefox", "fingerprint": "fp_lin_firefox_01"},
+  {"device_id": "dev_012", "type": "tablet", "os": "iPadOS", "browser": "Safari", "fingerprint": "fp_ipad_safari_01"},
+  {"device_id": "dev_013", "type": "tablet", "os": "Android", "browser": "Chrome", "fingerprint": "fp_tab_chrome_02"}
 ]
-
