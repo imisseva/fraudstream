@@ -19,6 +19,10 @@ class KafkaEventProducer:
         topic: Optional[str] = None,
         topic_transactions: str = "transaction-events",
         topic_clickstream: str = "clickstream-events",
+        security_protocol: Optional[str] = None,
+        sasl_mechanism: Optional[str] = None,
+        sasl_username: Optional[str] = None,
+        sasl_password: Optional[str] = None,
         dry_run: bool = False,
     ):
         self.default_topic = topic or topic_transactions
@@ -33,12 +37,22 @@ class KafkaEventProducer:
                     "confluent-kafka is not installed. Run 'pip install confluent-kafka' "
                     "or enable dry-run mode."
                 )
-            self.producer = Producer({
+            conf = {
                 "bootstrap.servers": bootstrap_servers,
                 "linger.ms": 10,           # Gom events 10ms rồi gửi 1 lần
                 "batch.num.messages": 100,  # Gom tối đa 100 messages/batch
                 "acks": "all",
-            })
+            }
+            # Cấu hình SASL/SSL cho Cloud (Aiven, Confluent Cloud...)
+            if sasl_username and sasl_password:
+                conf["security.protocol"] = security_protocol or "SASL_SSL"
+                conf["sasl.mechanisms"] = sasl_mechanism or "SCRAM-SHA-256"
+                conf["sasl.username"] = sasl_username
+                conf["sasl.password"] = sasl_password
+                # Nếu chạy trên Windows kết nối Cloud không có root CA cục bộ
+                conf["enable.ssl.certificate.verification"] = False
+
+            self.producer = Producer(conf)
 
     def _delivery_callback(self, err, msg):
         if err:

@@ -9,6 +9,12 @@ import sys
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from simulator.config import SimulatorConfig, KafkaConfig
 from simulator.models.user import User, UserType
 from simulator.models.product import ProductCatalog
@@ -62,6 +68,10 @@ class FraudStreamSimulator:
             bootstrap_servers=config.kafka.bootstrap_servers,
             topic_transactions=config.kafka.topic_transactions,
             topic_clickstream=config.kafka.topic_clickstream,
+            security_protocol=config.kafka.security_protocol,
+            sasl_mechanism=config.kafka.sasl_mechanism,
+            sasl_username=config.kafka.sasl_username,
+            sasl_password=config.kafka.sasl_password,
             dry_run=config.dry_run,
         )
 
@@ -181,6 +191,30 @@ def parse_args():
         help="Kafka topic for clickstream events",
     )
     parser.add_argument(
+        "--security-protocol",
+        type=str,
+        default=os.environ.get("SECURITY_PROTOCOL"),
+        help="Kafka security protocol (e.g. SASL_SSL)",
+    )
+    parser.add_argument(
+        "--sasl-mechanism",
+        type=str,
+        default=os.environ.get("SASL_MECHANISM"),
+        help="SASL mechanism (e.g. SCRAM-SHA-256 or PLAIN)",
+    )
+    parser.add_argument(
+        "--sasl-username",
+        type=str,
+        default=os.environ.get("SASL_USERNAME"),
+        help="SASL username / API key",
+    )
+    parser.add_argument(
+        "--sasl-password",
+        type=str,
+        default=os.environ.get("SASL_PASSWORD"),
+        help="SASL password / API secret",
+    )
+    parser.add_argument(
         "--rate",
         type=float,
         default=float(os.environ.get("RATE", "20.0")),
@@ -217,6 +251,10 @@ def main():
             bootstrap_servers=args.bootstrap_servers,
             topic_transactions=args.topic_transactions,
             topic_clickstream=args.topic_clickstream,
+            security_protocol=args.security_protocol,
+            sasl_mechanism=args.sasl_mechanism,
+            sasl_username=args.sasl_username,
+            sasl_password=args.sasl_password,
         ),
     )
     simulator = FraudStreamSimulator(config)

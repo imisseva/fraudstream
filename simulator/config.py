@@ -16,6 +16,10 @@ class KafkaConfig:
     bootstrap_servers: str = "localhost:9092"
     topic_transactions: str = "transaction-events"
     topic_clickstream: str = "clickstream-events"
+    security_protocol: Optional[str] = None
+    sasl_mechanism: Optional[str] = None
+    sasl_username: Optional[str] = None
+    sasl_password: Optional[str] = None
 
     @property
     def topic(self) -> str:
