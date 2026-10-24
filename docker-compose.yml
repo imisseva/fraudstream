@@ -1,61 +1,17 @@
+# ==============================================================================
+# FraudStream Simulator Container (Cloud Kafka Mode)
+# Kết nối trực tiếp tới Aiven Kafka Cloud thông qua cấu hình trong .env
+#   Khởi động: docker compose up -d
+#   Xem logs:  docker compose logs -f
+#   Dừng lại:  docker compose down
+# ==============================================================================
+
 services:
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.5.0
-    container_name: fraudstream-zookeeper
-    restart: unless-stopped
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    ports:
-      - "2181:2181"
-
-  kafka:
-    image: confluentinc/cp-kafka:7.5.0
-    container_name: fraudstream-kafka
-    restart: unless-stopped
-    depends_on:
-      - zookeeper
-    ports:
-      - "9092:9092"
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:29092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-    healthcheck:
-      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
-  kafka-ui:
-    image: provectuslabs/kafka-ui:latest
-    container_name: fraudstream-kafka-ui
-    restart: unless-stopped
-    depends_on:
-      - kafka
-    ports:
-      - "8080:8080"
-    environment:
-      KAFKA_CLUSTERS_0_NAME: fraudstream
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
-
   simulator:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: fraudstream-simulator
     restart: unless-stopped
-    depends_on:
-      kafka:
-        condition: service_healthy
-    environment:
-      BOOTSTRAP_SERVERS: kafka:29092
-      TOPIC_TRANSACTIONS: transaction-events
-      TOPIC_CLICKSTREAM: clickstream-events
-      RATE: "20"
-      USERS: "1000"
+    env_file:
+      - .env
