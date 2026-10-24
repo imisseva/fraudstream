@@ -68,24 +68,40 @@ class KafkaEventProducer:
             return self.topic_transactions
         return self.topic_clickstream
 
-    async def send_event(self, event: Dict[str, Any], topic: Optional[str] = None):
-        """Gửi 1 event vào Kafka theo topic tương ứng."""
+    def send_event_sync(self, event: Dict[str, Any], topic: Optional[str] = None):
+        """Gửi 1 event vào Kafka theo topic tương ứng (đồng bộ)."""
         target_topic = self.resolve_topic(event, topic)
 
         if self.dry_run:
             logger.debug(f"[DRY RUN -> {target_topic}] {event.get('event_type')} user={event.get('user_id')}")
             return
 
-        key = event.get("user_id", event.get("card_id", "unknown"))
+        # Xác định partition key: ưu tiên user_id, fallback device_id/card_id/session_id
+        # Nếu mất sạch ID (glitch missing_field), đặt key = None để Kafka tự phân phối đều round-robin
+        # tránh dồn toàn bộ bản ghi lỗi vào 1 partition duy nhất ("unknown")
+        raw_key = event.get("user_id") or event.get("device_id") or event.get("card_id") or event.get("session_id")
+        key_bytes = raw_key.encode("utf-8") if raw_key else None
         value = json.dumps(event, ensure_ascii=False)
         
-        self.producer.produce(
-            topic=target_topic,
-            key=key.encode("utf-8"),
-            value=value.encode("utf-8"),
-            callback=self._delivery_callback,
-        )
+        # Bắt BufferError khi tốc độ cao (rate lớn / network lag) để tránh crash simulator
+        while True:
+            try:
+                self.producer.produce(
+                    topic=target_topic,
+                    key=key_bytes,
+                    value=value.encode("utf-8"),
+                    callback=self._delivery_callback,
+                )
+                break
+            except BufferError:
+                logger.warning("Kafka local buffer full, draining queue...")
+                self.producer.poll(0.1)
+
         self.producer.poll(0)  # Non-blocking poll
+
+    async def send_event(self, event: Dict[str, Any], topic: Optional[str] = None):
+        """Async wrapper gửi 1 event vào Kafka."""
+        self.send_event_sync(event, topic)
 
     def flush(self):
         """Flush tất cả messages còn trong buffer"""
