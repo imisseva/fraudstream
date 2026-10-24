@@ -215,35 +215,31 @@ fraudstream/
 
 ## 🚀 Hướng dẫn vận hành
 
-### 1. Khởi động toàn bộ stack với Docker Compose:
+### 1. Khởi động Simulator với Docker Compose (Cloud Kafka):
+Toàn bộ thông tin kết nối Aiven Kafka Cloud đã được nạp tự động qua file `.env`. Bạn chỉ cần chạy:
 ```powershell
 docker compose up -d
 ```
-Hệ thống sẽ khởi chạy:
-- **Zookeeper**: `:2181`
-- **Kafka**: `:9092` (host) và `:29092` (internal docker)
-- **Kafka UI**: [http://localhost:8080](http://localhost:8080)
-- **Simulator container**: Tự động chờ Kafka healthy rồi bắt đầu stream dữ liệu vào 2 topics: `transaction-events` và `clickstream-events`.
+Hệ thống sẽ khởi chạy duy nhất container `fraudstream-simulator` (cực kỳ nhẹ, tốn chưa tới 100MB RAM), tự động stream dữ liệu liên tục lên Aiven Kafka Cloud.
 
-### 2. Xem logs realtime của Simulator:
+#### Theo dõi logs của simulator:
 ```powershell
-docker compose logs -f simulator
+docker compose logs -f
 ```
 
-Output mẫu:
-```
-16:37:12 | INFO  | Created 1000 users (normal: 800, suspicious: 150, fraudster: 50)
-16:37:12 | INFO  | Loaded 25 merchants and 15 countries reference data.
-16:37:12 | INFO  | 🚀 FraudStream Multi-Scenario Simulator started!
-16:37:14 | INFO  | 📊 Total: 100 | Txns: 59 (Fraud: 12) | Clicks: 41 | Glitches: 2 | Rate: 20.0 evt/s
-```
-
-### 3. Chạy độc lập trên Host (Development / Debug mode):
+#### Dừng container:
 ```powershell
-# Chạy với Kafka local
+docker compose down
+```
+
+---
+
+### 2. Chạy trực tiếp trên Host (không cần Docker):
+```powershell
+# Chạy stream trực tiếp lên Aiven Kafka Cloud
 python -m simulator.main
 
-# Chạy Dry-Run (không cần Kafka)
+# Chạy Dry-Run (chạy kiểm thử không gửi Kafka)
 python -m simulator.main --dry-run --rate 50 --max-events 200
 ```
 
@@ -251,7 +247,7 @@ python -m simulator.main --dry-run --rate 50 --max-events 200
 
 ## 🧪 Chạy Kiểm thử (Unit Tests)
 
-Bộ 11 unit tests kiểm tra toàn diện schema, 5 scenarios, data quality và routing:
+Bộ 14 unit tests kiểm tra toàn diện schema, 5 scenarios, data quality, watermark timestamps và topic routing:
 ```powershell
 python -m pytest tests/ -v
 ```
