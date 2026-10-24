@@ -15,12 +15,20 @@ class RepeatedAttemptsScenario:
     def generate_sequence(self, user: User, failure_count: int = 4) -> List[TransactionEvent]:
         card = user.primary_card
         merchant = self.catalog.get_random_merchant(category=random.choice(["electronics", "gaming", "jewelry"]))
-        base_time = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
         events: List[TransactionEvent] = []
+
+        # Tính toán offset thời gian lùi về quá khứ để lần thành công cuối cùng rơi vào đúng 'now'
+        # Tránh lỗi Watermark skew trên Spark/Flink
+        time_offsets = [0.0]
+        for _ in range(failure_count):
+            time_offsets.append(time_offsets[-1] + random.uniform(2.0, 5.0))
+        total_duration = time_offsets[-1]
+        start_time = now - timedelta(seconds=total_duration)
 
         # Các lần thử thất bại liên tiếp (sai CVV/OTP/vượt hạn mức)
         for i in range(failure_count):
-            txn_time = base_time + timedelta(seconds=i * random.uniform(2.0, 5.0))
+            txn_time = start_time + timedelta(seconds=time_offsets[i])
             test_amount = float(random.choice([50000, 100000, 500000]))
 
             failed_event = TransactionEvent(
@@ -44,8 +52,8 @@ class RepeatedAttemptsScenario:
             )
             events.append(failed_event)
 
-        # Lần cuối cùng thành công với số tiền lớn
-        success_time = base_time + timedelta(seconds=failure_count * 5.0 + 3.0)
+        # Lần cuối cùng thành công với số tiền lớn (đúng thời điểm now)
+        success_time = start_time + timedelta(seconds=time_offsets[-1])
         final_amount = float(random.choice([5000000, 12000000, 25000000]))
         
         success_event = TransactionEvent(
