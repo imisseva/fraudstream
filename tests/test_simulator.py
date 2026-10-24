@@ -265,8 +265,7 @@ def test_clickstream_funnel(catalog, sample_user):
 # Test 11: Kafka Producer Topic Routing
 # -------------------------------------------------------------------
 
-@pytest.mark.asyncio
-async def test_kafka_producer_topic_routing():
+def test_kafka_producer_topic_routing():
     producer = KafkaEventProducer(
         bootstrap_servers="localhost:9092",
         topic_transactions="custom-txn",
@@ -279,7 +278,70 @@ async def test_kafka_producer_topic_routing():
     assert producer.resolve_topic(txn_event) == "custom-txn"
     assert producer.resolve_topic(click_event) == "custom-click"
 
-    await producer.send_event(txn_event)
-    await producer.send_event(click_event)
+    producer.send_event_sync(txn_event)
+    producer.send_event_sync(click_event)
     producer.flush()
     producer.close()
+
+
+# -------------------------------------------------------------------
+# Test 12: No Future Timestamps in Velocity and Repeated Attempts
+# -------------------------------------------------------------------
+
+def test_no_future_timestamps_in_bursts(merchant_catalog, sample_user):
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+
+    # Velocity
+    scen_v = VelocityScenario(merchant_catalog)
+    burst = scen_v.generate_burst(sample_user, burst_count=8)
+    for txn in burst:
+        txn_dt = datetime.fromisoformat(txn.event_time.replace("Z", "+00:00"))
+        # Timestamp must be in past or present, never into future
+        assert txn_dt <= now or (txn_dt - now).total_seconds() < 1.0
+
+    # Repeated attempts
+    scen_r = RepeatedAttemptsScenario(merchant_catalog)
+    seq = scen_r.generate_sequence(sample_user, failure_count=3)
+    for txn in seq:
+        txn_dt = datetime.fromisoformat(txn.event_time.replace("Z", "+00:00"))
+        assert txn_dt <= now or (txn_dt - now).total_seconds() < 1.0
+
+
+# -------------------------------------------------------------------
+# Test 13: Scenario C Sequence (Pair of Events for Stateful Detection)
+# -------------------------------------------------------------------
+
+def test_scenario_c_sequence_pair(merchant_catalog, countries, sample_user):
+    scenario = GeographicAnomalyScenario(merchant_catalog, countries)
+    pair = scenario.generate_sequence(sample_user)
+
+    assert len(pair) == 2
+    legit_event, fraud_event = pair[0], pair[1]
+
+    # Event 1: Domestic VN
+    assert legit_event.country == sample_user.home_country
+    assert legit_event.is_fraud == 0
+    # Event 2: Foreign
+    assert fraud_event.country != sample_user.home_country
+    assert fraud_event.is_fraud == 1
+    assert fraud_event.fraud_scenario == "geographic_anomaly"
+
+
+# -------------------------------------------------------------------
+# Test 14: Checkout Clickstream Event & Session Correlation
+# -------------------------------------------------------------------
+
+def test_checkout_clickstream_event(catalog, sample_user):
+    config = SimulatorConfig(purchase_rate=1.0, dry_run=True)
+    click_gen = ClickstreamGenerator(config, catalog)
+    session = Session(ip_address="103.12.44.1", city="Ho Chi Minh")
+    session.stage = SessionStage.CARTING
+    session.cart_total = 250000.0
+
+    checkout_event = click_gen.generate_next_event(sample_user, session)
+    assert checkout_event is not None
+    assert checkout_event.event_type == "checkout"
+    assert checkout_event.cart_total == 250000.0
+    assert checkout_event.session_id == session.session_id
+    assert session.stage == SessionStage.COMPLETED
