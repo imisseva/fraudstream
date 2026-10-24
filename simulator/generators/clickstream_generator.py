@@ -114,7 +114,25 @@ class ClickstreamGenerator:
             return self._gen_product_view(user, session)
 
     def _gen_cart_action(self, user: User, session: Session) -> Optional[ClickstreamEvent]:
-        # Ở phễu mới, checkout cuối cùng chuyển sang TransactionEvent!
-        session.stage = SessionStage.COMPLETED
-        return None
+        # Phễu chuyển đổi: Kiểm tra tỷ lệ tiến hành checkout bằng config.purchase_rate
+        if random.random() < self.config.purchase_rate:
+            session.stage = SessionStage.COMPLETED
+            session.events_count += 1
+            return ClickstreamEvent(
+                event_id=random_id("evt_"),
+                event_type="checkout",
+                event_time=now_iso(),
+                user_id=user.user_id,
+                session_id=session.session_id,
+                device_id=user.device_id,
+                ip_address=session.ip_address,
+                city=session.city,
+                user_type=user.user_type.value,
+                cart_total=session.cart_total,
+                page="/checkout",
+            )
+        else:
+            # Người dùng bỏ dở giỏ hàng (Cart Abandonment)
+            session.stage = SessionStage.COMPLETED
+            return None
 

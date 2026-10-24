@@ -4,7 +4,7 @@ from typing import Optional, Dict, Any
 @dataclass
 class ClickstreamEvent:
     event_id: str
-    event_type: str                  # page_view, search, product_view, add_to_cart
+    event_type: str                  # page_view, search, product_view, add_to_cart, checkout
     event_time: str
     user_id: str
     session_id: str

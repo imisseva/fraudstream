@@ -20,6 +20,7 @@ class TransactionEvent:
     status: str = "success"         # success, failed, pending
     is_fraud: int = 0               # 0 (normal) or 1 (fraud)
     fraud_scenario: Optional[str] = None  # e.g., 'high_value', 'velocity', 'geographic_anomaly', 'device_ip_sharing', 'repeated_attempts'
+    session_id: Optional[str] = None      # Correlation ID liên kết với clickstream session
 
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)

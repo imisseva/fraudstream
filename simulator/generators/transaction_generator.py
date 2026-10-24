@@ -38,13 +38,17 @@ class TransactionGenerator:
         # Queue lưu trữ chuỗi sự kiện sinh theo lô (burst)
         self.event_queue: List[TransactionEvent] = []
 
-    def generate_next_event(self, user: User) -> Dict[str, Any]:
+    def generate_next_event(self, user: User, session_id: Optional[str] = None) -> Dict[str, Any]:
         """Sinh 1 transaction event kế tiếp (dưới dạng Dict), có thể kèm data quality glitch."""
-        # 1. Nếu đang có hàng đợi burst (từ velocity hoặc repeated_attempts)
+        # 1. Nếu đang có hàng đợi burst (từ velocity, repeated_attempts hoặc geo_anomaly)
         if self.event_queue:
             raw_event = self.event_queue.pop(0)
         else:
             raw_event = self._generate_scenario_event(user)
+
+        # Gán session_id nếu giao dịch được thực hiện trong phiên clickstream
+        if session_id and not raw_event.session_id:
+            raw_event.session_id = session_id
 
         event_dict = raw_event.to_dict()
 
@@ -88,7 +92,9 @@ class TransactionGenerator:
             self.event_queue.extend(burst[1:])
             return burst[0]
         elif chosen == "C":
-            return self.scen_geo_anomaly.generate(user)
+            pair = self.scen_geo_anomaly.generate_sequence(user)
+            self.event_queue.extend(pair[1:])
+            return pair[0]
         elif chosen == "D":
             return self.scen_device_sharing.generate(user)
         else:  # "E"

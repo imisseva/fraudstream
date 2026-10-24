@@ -96,8 +96,9 @@ class FraudStreamSimulator:
             city=user.home_city,
         )
 
-    async def run(self, max_events: Optional[int] = None):
+    def run(self, max_events: Optional[int] = None):
         """Main loop — chạy liên tục hoặc dừng khi đạt max_events."""
+        import time
         self.running = True
         logger.info("🚀 FraudStream Multi-Scenario Simulator started!")
         if self.config.dry_run:
@@ -124,7 +125,8 @@ class FraudStreamSimulator:
                 event = None
 
                 if is_transaction:
-                    event = self.txn_gen.generate_next_event(user)
+                    session_id = user.current_session.session_id if (user.current_session and user.current_session.is_active()) else None
+                    event = self.txn_gen.generate_next_event(user, session_id=session_id)
                     self.stats["transactions"] += 1
                     if event.get("is_fraud") == 1:
                         self.stats["fraud_transactions"] += 1
@@ -140,7 +142,7 @@ class FraudStreamSimulator:
 
                 # Gửi vào Kafka nếu có event
                 if event:
-                    await self.producer.send_event(event)
+                    self.producer.send_event_sync(event)
                     self.stats["total_events"] += 1
 
                     # Log progress định kỳ
@@ -155,8 +157,8 @@ class FraudStreamSimulator:
                         )
 
                 # Sleep theo traffic pattern
-                await asyncio.sleep(self.traffic.get_sleep_interval())
-        except asyncio.CancelledError:
+                time.sleep(self.traffic.get_sleep_interval())
+        except KeyboardInterrupt:
             pass
         finally:
             self.stop()
@@ -271,7 +273,7 @@ def main():
         pass
 
     try:
-        asyncio.run(simulator.run(max_events=args.max_events))
+        simulator.run(max_events=args.max_events)
     except KeyboardInterrupt:
         simulator.stop()
 
