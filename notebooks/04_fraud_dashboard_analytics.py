@@ -1,6 +1,6 @@
 # ==============================================================================
 # FraudStream: Executive Fraud & Business Intelligence Dashboard
-# Phân tích toàn diện chỉ số gian lận, KPI tài chính, rủi ro kênh và giám sát mô hình
+# Phân tích luật fraud, KPI, rủi ro kênh và đánh giá trên nhãn simulator
 # Thích hợp chạy trực tiếp trên Databricks Notebook hoặc chuyển thành Databricks AI/BI Dashboard
 # ==============================================================================
 
@@ -27,20 +27,20 @@ print(f"🏢 Lakehouse Schema: {catalog_name}.{schema_name}")
 
 # COMMAND ----------
 # MAGIC %sql
-# MAGIC -- Thẻ chỉ số điều hành: Tổng số giao dịch, cảnh báo gian lận, tỷ lệ rủi ro và tổn thất tài chính được ngăn chặn
+# MAGIC -- KPI mô tả giao dịch được gắn cờ; không diễn giải số tiền là tổn thất đã ngăn chặn
 # MAGIC WITH stats AS (
 # MAGIC     SELECT 
 # MAGIC         (SELECT count(*) FROM silver_transactions) AS total_transactions,
 # MAGIC         (SELECT count(*) FROM gold_fraud_alerts) AS total_fraud_alerts,
-# MAGIC         (SELECT coalesce(sum(amount), 0) FROM gold_fraud_alerts) AS total_fraud_amount_vnd,
-# MAGIC         (SELECT coalesce(avg(amount), 0) FROM gold_fraud_alerts) AS avg_fraud_ticket_vnd
+# MAGIC         (SELECT coalesce(sum(amount), 0) FROM gold_fraud_alerts WHERE upper(currency) = 'VND') AS total_fraud_amount_vnd,
+# MAGIC         (SELECT coalesce(avg(amount), 0) FROM gold_fraud_alerts WHERE upper(currency) = 'VND') AS avg_fraud_ticket_vnd
 # MAGIC )
 # MAGIC SELECT 
 # MAGIC     total_transactions,
 # MAGIC     total_fraud_alerts,
 # MAGIC     round((total_fraud_alerts / nullif(total_transactions, 0)) * 100, 2) AS fraud_rate_percentage,
 # MAGIC     total_fraud_amount_vnd,
-# MAGIC     concat(format_number(round(total_fraud_amount_vnd / 1000000, 1), 1), ' Triệu VND') AS total_fraud_prevented,
+# MAGIC     concat(format_number(round(total_fraud_amount_vnd / 1000000, 1), 1), ' Triệu VND') AS total_flagged_amount,
 # MAGIC     concat(format_number(round(avg_fraud_ticket_vnd / 1000000, 2), 2), ' Triệu VND') AS avg_fraud_ticket
 # MAGIC FROM stats;
 
@@ -57,6 +57,7 @@ print(f"🏢 Lakehouse Schema: {catalog_name}.{schema_name}")
 # MAGIC         amount,
 # MAGIC         fraud_risk_score
 # MAGIC     FROM gold_fraud_alerts
+# MAGIC     WHERE upper(currency) = 'VND'
 # MAGIC )
 # MAGIC SELECT 
 # MAGIC     scenario AS `Kịch bản gian lận`,
@@ -83,6 +84,7 @@ print(f"🏢 Lakehouse Schema: {catalog_name}.{schema_name}")
 # MAGIC     concat(format_number(round(sum(amount) / 1000000, 1), 1), ' Tr VND') AS hourly_fraud_volume,
 # MAGIC     round(avg(fraud_risk_score), 1) AS avg_hourly_risk
 # MAGIC FROM gold_fraud_alerts
+# MAGIC WHERE upper(currency) = 'VND'
 # MAGIC GROUP BY date_format(event_time, 'yyyy-MM-dd HH:00')
 # MAGIC ORDER BY hour_bucket DESC
 # MAGIC LIMIT 24;
@@ -99,7 +101,7 @@ print(f"🏢 Lakehouse Schema: {catalog_name}.{schema_name}")
 # MAGIC     count(s.transaction_id) AS `Tổng giao dịch`,
 # MAGIC     count(g.alert_id) AS `Số vụ gian lận`,
 # MAGIC     round(count(g.alert_id) * 100.0 / nullif(count(s.transaction_id), 0), 2) AS `Tỷ lệ gian lận (%)`,
-# MAGIC     concat(format_number(round(coalesce(sum(g.amount), 0) / 1000000, 1), 1), ' Tr VND') AS `Tổng tiền rủi ro`
+# MAGIC     concat(format_number(round(coalesce(sum(CASE WHEN upper(g.currency) = 'VND' THEN g.amount ELSE 0 END), 0) / 1000000, 1), 1), ' Tr VND') AS `Tổng tiền rủi ro VND`
 # MAGIC FROM silver_transactions s
 # MAGIC LEFT JOIN gold_fraud_alerts g ON s.transaction_id = g.transaction_id
 # MAGIC GROUP BY s.channel
@@ -115,10 +117,11 @@ print(f"🏢 Lakehouse Schema: {catalog_name}.{schema_name}")
 # MAGIC SELECT 
 # MAGIC     country AS `Quốc gia`,
 # MAGIC     count(*) AS `Số cảnh báo`,
-# MAGIC     concat(format_number(round(sum(amount) / 1000000, 1), 1), ' Tr VND') AS `Tổng tiền gian lận`,
-# MAGIC     round(avg(amount), 0) AS `Giá trị trung bình (VND)`,
+# MAGIC     concat(format_number(round(sum(CASE WHEN upper(currency) = 'VND' THEN amount ELSE 0 END) / 1000000, 1), 1), ' Tr VND') AS `Tổng tiền cảnh báo VND`,
+# MAGIC     round(avg(CASE WHEN upper(currency) = 'VND' THEN amount END), 0) AS `Giá trị trung bình (VND)`,
 # MAGIC     round(count(*) * 100.0 / sum(count(*)) over(), 2) AS `Tỷ trọng (%)`
 # MAGIC FROM gold_fraud_alerts
+# MAGIC WHERE upper(currency) = 'VND'
 # MAGIC GROUP BY country
 # MAGIC ORDER BY `Số cảnh báo` DESC;
 
@@ -132,7 +135,7 @@ print(f"🏢 Lakehouse Schema: {catalog_name}.{schema_name}")
 # MAGIC SELECT 
 # MAGIC     merchant_id AS `Mã Merchant`,
 # MAGIC     count(*) AS `Số vụ gian lận`,
-# MAGIC     concat(format_number(round(sum(amount) / 1000000, 1), 1), ' Tr VND') AS `Tổng tiền bị quẹt`,
+# MAGIC     concat(format_number(round(sum(CASE WHEN upper(currency) = 'VND' THEN amount ELSE 0 END) / 1000000, 1), 1), ' Tr VND') AS `Tổng tiền cảnh báo VND`,
 # MAGIC     round(avg(fraud_risk_score), 1) AS `Điểm rủi ro TB`
 # MAGIC FROM gold_fraud_alerts
 # MAGIC GROUP BY merchant_id
@@ -166,17 +169,18 @@ print(f"🏢 Lakehouse Schema: {catalog_name}.{schema_name}")
 
 # COMMAND ----------
 # %md
-# ## 8️⃣ THEO DÕI HIỆU NĂNG MÔ HÌNH THEO THỜI GIAN (MODEL PERFORMANCE & DRIFT OBSERVABILITY)
+# ## 8️⃣ ĐÁNH GIÁ BỘ LUẬT TRÊN NHÃN SIMULATOR (SYNTHETIC BENCHMARK)
 
 # COMMAND ----------
 # MAGIC %sql
-# MAGIC -- Lịch sử các lần chạy pipeline và biến thiên các chỉ số Precision, Recall, F1-Score
+# MAGIC -- Các chỉ số này đo độ khớp với ground truth tổng hợp, không phải hiệu năng trên dữ liệu thực
 # MAGIC SELECT 
 # MAGIC     date_format(evaluated_at, 'yyyy-MM-dd HH:mm:ss') AS `Thời điểm đánh giá`,
 # MAGIC     f1_score_pct AS `F1-Score (%)`,
 # MAGIC     precision_pct AS `Precision (%)`,
 # MAGIC     recall_pct AS `Recall (%)`,
 # MAGIC     accuracy_pct AS `Accuracy (%)`,
+# MAGIC     evaluation_scope AS `Evaluation scope`,
 # MAGIC     true_positives AS `TP (Bắt trúng)`,
 # MAGIC     false_positives AS `FP (Báo nhầm)`,
 # MAGIC     false_negatives AS `FN (Bỏ lọt)`,

@@ -1,8 +1,8 @@
 # 🛡️ FraudStream: Real-time Financial & Clickstream Fraud Simulator
 
-Hệ thống mô phỏng dữ liệu giao dịch tài chính & hành vi người dùng (Clickstream) theo thời gian thực chuẩn Enterprise, tích hợp **5 kịch bản gian lận thực tế (Scenarios A → E)**, cơ chế cấy lỗi kiểm thử khả năng chịu lỗi của pipeline (**Data Quality Glitches**), và đẩy dữ liệu đa topic vào **Apache Kafka**.
+FraudStream là dự án portfolio mô phỏng giao dịch tài chính và hành vi clickstream, gửi dữ liệu vào Apache Kafka và xử lý bằng Spark trên Databricks. Simulator tạo **5 kịch bản giao dịch A–E** cùng dữ liệu lỗi có chủ đích; pipeline áp dụng thêm hai luật clickstream F–G. Gold là bộ luật minh họa trên dữ liệu tổng hợp, không phải mô hình machine learning đã huấn luyện hoặc được đánh giá trên dữ liệu thực.
 
-Hệ thống được thiết kế tối ưu làm nguồn dữ liệu mẫu (Data Source) cho các pipeline xử lý dòng (Stream Processing) bằng **Apache Spark Structured Streaming**, **Databricks**, hoặc **Apache Flink**.
+Pipeline hỗ trợ **BATCH** (xử lý dữ liệu hiện có bằng `availableNow`) và **STREAMING** (chạy liên tục qua Bronze → Silver → Gold bằng Spark Structured Streaming).
 
 ---
 
@@ -70,7 +70,7 @@ Hệ thống được thiết kế tối ưu làm nguồn dữ liệu mẫu (Dat
                        \                                       /
                         v                                     v
                        +---------------------------------------+
-                       |          Kafka UI (:8080)             |
+                       |     Aiven Kafka Cloud (external)       |
                        +---------------------------------------+
 ```
 
@@ -82,25 +82,27 @@ Hệ thống được thiết kế tối ưu làm nguồn dữ liệu mẫu (Dat
 fraudstream/
 ├── .github/
 │   └── workflows/
-│       └── ci.yml                  # GitHub Actions CI/CD Pipeline (Unit Tests & Linter)
+│       └── ci.yml                  # GitHub Actions tests và Spark smoke checks
 ├── Dockerfile                      # Build image Python 3.11-slim
 ├── .dockerignore
-├── docker-compose.yml              # Zookeeper + Kafka + Kafka UI + Simulator
-├── requirements.txt
+├── docker-compose.yml              # Simulator nối tới Kafka Cloud bên ngoài
+├── requirements.txt                # Dependencies của simulator
+├── requirements-test.txt           # Dependencies cho unit tests và local Spark
 ├── README.md
 │
-├── notebooks/                      # Bộ 5 Notebooks Medallion trên Databricks Lakehouse
+├── notebooks/                      # Notebooks Medallion trên Databricks Lakehouse
 │   ├── 00_run_all_pipeline.py      # Master Orchestrator (1-click trigger & metrics)
 │   ├── 01_fraudstream_ingestion.py # Bronze Ingestion (Transactions & Clickstream)
 │   ├── 02_fraudstream_silver_quality.py # Silver Quality, RocksDB Dedup & Session Profiles
-│   ├── 03_fraudstream_gold_detection.py # Gold 7-Scenario Engine & Model Evaluation History
-│   └── 04_fraud_dashboard_analytics.py # Executive Lakehouse Fraud & BI Dashboard
+│   ├── 03_fraudstream_gold_detection.py # Gold rule engine & synthetic-label evaluation
+│   ├── 04_fraud_dashboard_analytics.py # Executive Lakehouse Fraud & BI Dashboard
+│   └── 05_fraudstream_continuous.py # Job dài hạn Bronze-Silver-Gold
 │
 ├── pipelines/
-│   └── dlt_fraudstream_pipeline.py # Delta Live Tables (DLT) Declarative Pipeline với Expectations
+│   └── dlt_fraudstream_pipeline.py # DLT/Lakeflow thử nghiệm, yêu cầu Bronze đã tồn tại
 │
 ├── workflows/
-│   └── databricks_workflow_job.json# Cấu hình Multi-Task Databricks Workflows DAG
+│   └── databricks_workflow_job.json# Workflow entrypoint với tham số run_mode
 │
 ├── simulator/
 │   ├── __init__.py
@@ -149,9 +151,12 @@ fraudstream/
 │       ├── timestamps.py           # Tiện ích sinh UTC, late timestamps, bad dates
 │       └── random_utils.py         # Tiện ích sinh IP, ID, Gaussian distribution
 │
+├── fraudstream/
+│   ├── databricks_config.py        # Kafka options và Databricks Secrets
+│   └── spark_ops.py                # Schema, parsing, quality và fraud scoring
 └── tests/
-    ├── __init__.py
-    └── test_simulator.py           # 11 Unit tests bao phủ toàn bộ hệ thống
+    ├── test_simulator.py           # Unit tests cho simulator
+    └── test_spark_ops.py           # Spark tests cho quality và fraud rules
 ```
 
 ---
@@ -182,7 +187,7 @@ fraudstream/
 }
 ```
 
-*Lưu ý:* Khi phát sinh gian lận, event có thể kèm thêm trường metadata `"fraud_scenario": "high_value"` (chỉ dùng để benchmark/đánh giá mô hình, không dùng làm input feature trong inference).
+*Lưu ý:* Event có thể kèm metadata `"fraud_scenario": "high_value"` làm ground truth để benchmark bộ luật; trường này không được dùng làm input khi chấm giao dịch.
 
 ### 2. `clickstream` Event (`topic: clickstream-events`)
 
@@ -210,7 +215,7 @@ fraudstream/
 
 | Scenario | Tên kịch bản | Chiều phân tích | Mô tả hành vi phát hiện |
 | :--- | :--- | :--- | :--- |
-| **A** | **High Value Transaction** | Amount | Giao dịch số tiền đột biến $\ge 20.000.000$ VND tại các merchant vàng bạc, đá quý, đồ xa xỉ. |
+| **A** | **High Value Transaction** | Amount / Merchant | Giao dịch từ $20.000.000$ VND trở lên tại merchant electronics, jewelry hoặc crypto được simulator đánh dấu là nhóm rủi ro cao. |
 | **B** | **Transaction Velocity** | Time Window | Cùng một user/thẻ phát sinh $\ge 3$ giao dịch chỉ trong cửa sổ trượt 5 phút (burst quẹt thẻ tự động). |
 | **C** | **Geographic Anomaly** | Location / IP | Cùng một thẻ xuất hiện ở 2 quốc gia khác nhau trong thời gian di chuyển không khả thi ("Impossible Travel", $\le 15$ phút). |
 | **D** | **Device / IP Sharing** | Device / Network | Một thiết bị (`device_id`) có nhiều `user_id` khác nhau luân phiên giao dịch trong 10 phút (Fraud Ring / farm tài khoản). |
@@ -260,11 +265,16 @@ Hệ thống xử lý luồng và phát hiện gian lận được tổ chức c
 ```
 
 ### Chi tiết các Notebook:
-- **[`00_run_all_pipeline.py`](file:///d:/my-projects/fraudstream/notebooks/00_run_all_pipeline.py):** Master Pipeline Orchestrator — Tự động kích hoạt toàn bộ luồng Bronze $\rightarrow$ Silver $\rightarrow$ Gold chỉ với **1 cú click**, báo cáo thời gian thực thi và trạng thái từng bước.
-- **[`01_fraudstream_ingestion.py`](file:///d:/my-projects/fraudstream/notebooks/01_fraudstream_ingestion.py):** Tầng Bronze — Đọc song song 2 topics `transaction-events` và `clickstream-events` qua SASL/SSL với chứng chỉ PEM của Aiven Cloud, ghi vào Delta tables có checkpoint trên Unity Catalog Volume.
-- **[`02_fraudstream_silver_quality.py`](file:///d:/my-projects/fraudstream/notebooks/02_fraudstream_silver_quality.py):** Tầng Silver — Chuẩn hóa timestamp đa định dạng, lọc lỗi vào Dead Letter Queue (`quarantine_transactions`), khử trùng lặp có Watermark (1 giờ), và tổng hợp hành vi duyệt web thành `silver_session_profiles`.
-- **[`03_fraudstream_gold_detection.py`](file:///d:/my-projects/fraudstream/notebooks/03_fraudstream_gold_detection.py):** Tầng Gold — Stream-Join giao dịch với session profiles, chạy Window Functions phát hiện 7 kịch bản gian lận, tính `fraud_risk_score`, tích lũy cảnh báo bằng Delta `MERGE INTO`, và tự động xuất ma trận nhầm lẫn (Accuracy, Precision, Recall, F1).
-- **[`04_fraud_dashboard_analytics.py`](file:///d:/my-projects/fraudstream/notebooks/04_fraud_dashboard_analytics.py):** Tầng Analytics — Bộ truy vấn SQL phân tích tổng thiệt hại tài chính được bảo vệ, phân bố gian lận theo kênh (Web/Mobile/POS) và quốc gia.
+- **`00_run_all_pipeline.py`:** entrypoint nhận `run_mode`; batch gọi các tầng theo thứ tự, streaming chạy notebook dài hạn.
+- **`01_fraudstream_ingestion.py`:** batch Kafka → Bronze; lưu raw payload và Kafka topic/partition/offset/timestamp cùng các cột đã parse.
+- **`02_fraudstream_silver_quality.py`:** batch Bronze → Silver; quarantine transaction và clickstream lỗi, deduplicate theo event time và cập nhật session profiles.
+- **`03_fraudstream_gold_detection.py`:** chạy các luật fraud và MERGE alerts idempotent; metric được tính trên nhãn synthetic do simulator sinh ra.
+- **`04_fraud_dashboard_analytics.py`:** truy vấn SQL cho KPI, phân bố scenario, kênh, quốc gia và fraud analyst feed.
+- **`05_fraudstream_continuous.py`:** job streaming liên tục; Spark query failures làm Workflow thất bại. Cấu hình email/webhook cảnh báo trong Databricks Job.
+
+Notebook dùng module chung trong thư mục `fraudstream/`. Đồng bộ toàn bộ repo lên Databricks Workspace/Git Folder để module này nằm ở thư mục gốc cạnh `notebooks/`.
+
+DLT trong `pipelines/` là ví dụ tùy chọn đọc các bảng `bronze_transactions` và `bronze_clickstream` đã được tạo sẵn. Nó không phải nguồn Kafka và không nằm trong Workflow chính.
 
 ---
 
@@ -282,7 +292,7 @@ Hệ thống xử lý luồng và phát hiện gian lận được tổ chức c
 ## 🚀 Hướng dẫn vận hành
 
 ### 1. Khởi động Simulator với Docker Compose (Cloud Kafka):
-Toàn bộ thông tin kết nối Aiven Kafka Cloud đã được nạp tự động qua file `.env`. Bạn chỉ cần chạy:
+Tạo `.env` từ `.env.example`, điền thông tin Aiven và tải CA PEM thành `ca.pem` vào repo root. Hai tệp này đã bị Git ignore; không commit credentials hoặc certificate riêng. Sau đó chạy:
 ```powershell
 docker compose up -d
 ```
@@ -313,27 +323,33 @@ python -m simulator.main --dry-run --rate 50 --max-events 200
 
 ### 3. Vận hành Pipeline trên Databricks (Orchestration & Workflows):
 
-#### Cách 1: Chạy trực tiếp qua Master Notebook (1-Click Run)
-1. Mở notebook **[`notebooks/00_run_all_pipeline.py`](file:///d:/my-projects/fraudstream/notebooks/00_run_all_pipeline.py)** trên Databricks.
-2. Nhập mật khẩu Kafka (nếu cần) vào widget `kafka_password`.
-3. Bấm **Run All**. Notebook sẽ tự động kích hoạt tuần tự:
-   - Bước 1: `01_fraudstream_ingestion` (Kafka $\rightarrow$ Bronze)
-   - Bước 2: `02_fraudstream_silver_quality` (Bronze $\rightarrow$ Silver & DLQ)
-   - Bước 3: `03_fraudstream_gold_detection` (Silver $\rightarrow$ 7 Fraud Scenarios Gold)
-   - Bước 4: `04_fraud_dashboard_analytics` (Executive KPI Dashboard)
-4. Xem bảng tổng kết thời gian thực thi (Latency) và số lượng bản ghi tại từng tầng.
+#### Cấu hình Databricks một lần
+1. Đồng bộ toàn bộ repo vào Databricks Workspace/Git Folder để thư mục `fraudstream/` và `notebooks/` cùng nằm dưới project root.
+2. Tạo Secret Scope `fraudstream` và key `aiven-kafka-password`; đặt mật khẩu Aiven trong secret này.
+3. Cấu hình environment variables trên job cluster: `BOOTSTRAP_SERVERS`, `SASL_USERNAME`, `SASL_MECHANISM`, `DATABRICKS_SECRET_SCOPE`, `DATABRICKS_KAFKA_PASSWORD_KEY`, `KAFKA_CA_PATH`. CA PEM có thể đặt trong Unity Catalog Volume; `KAFKA_CA_PATH` phải là đường dẫn đọc được từ driver.
+4. Import `workflows/databricks_workflow_job.json` trong Workflows và chọn compute phù hợp. Cấu hình email/webhook notification trong UI của Job để nhận cảnh báo khi query lỗi.
 
-#### Cách 2: Triển khai Databricks Workflows (Multi-Task Job Schedule)
-1. Vào mục **Workflows** trên Databricks $\rightarrow$ Chọn **Create Job**.
-2. Nhấn vào biểu tượng ba chấm $\rightarrow$ Chọn **Edit as JSON**.
-3. Dán toàn bộ nội dung từ file **[`workflows/databricks_workflow_job.json`](file:///d:/my-projects/fraudstream/workflows/databricks_workflow_job.json)** vào và lưu lại.
-4. Hệ thống sẽ tự động tạo sơ đồ Directed Acyclic Graph (DAG) gồm 4 tasks có ràng buộc phụ thuộc rõ ràng, hỗ trợ retry và tự động thông báo khi có lỗi.
+#### Chạy batch demo
+Chạy Workflow với `run_mode=BATCH` (mặc định). Nó xử lý Kafka → Bronze → Silver → Gold → Analytics rồi kết thúc. Các checkpoint được lưu trong Volume và tái sử dụng khi chạy lại.
+
+#### Chạy streaming liên tục
+Chạy Workflow với `run_mode=STREAMING`. Job duy trì các query Bronze/Silver/Gold; dừng run của Job để dừng query một cách có kiểm soát. Không chạy đồng thời BATCH và STREAMING trên cùng catalog/schema. Giữ nguyên checkpoint để resume; để replay từ đầu, dùng schema/đích/checkpoint riêng.
+
+Trong streaming mode, Gold đánh giá mỗi transaction khi nó vào Silver; chất lượng tương quan clickstream phụ thuộc vào việc session profile đã được cập nhật trước thời điểm chấm. Dashboard analytics là notebook batch riêng, có thể chạy định kỳ hoặc chạy thủ công.
+
+#### Smoke test trên Databricks/Aiven
+1. Khởi động simulator bằng Docker Compose hoặc host; xác nhận log producer không có delivery/SSL errors.
+2. Chạy `run_mode=BATCH`; kiểm tra Bronze giữ `raw_payload`, `kafka_topic`, `kafka_partition`, `kafka_offset`, Silver có dữ liệu hợp lệ và các bản ghi lỗi xuất hiện trong hai quarantine table.
+3. Chạy lại batch; xác nhận Kafka/Silver checkpoint không đọc lại offset đã commit và số alert không bị nhân đôi.
+4. Chạy `run_mode=STREAMING`; phát thêm simulator events, kiểm tra Bronze/Silver/Gold cập nhật, dừng Workflow, rồi chạy lại để xác nhận resume từ checkpoint.
+5. Gửi một payload lỗi trong môi trường thử nghiệm và xác nhận raw payload cùng rejection reason có thể truy vết trong quarantine. Xác nhận Databricks Job notifications nhận cảnh báo khi cố ý làm query thất bại.
 
 ---
 
 ## 🧪 Chạy Kiểm thử (Unit Tests)
 
-Bộ 14 unit tests kiểm tra toàn diện schema, 5 scenarios, data quality, watermark timestamps và topic routing:
+Các test bao gồm simulator, luật Spark, ngưỡng thời gian/giá trị, currency, JSON lỗi, dedup và timestamp trễ. Cần Java 17 để chạy local Spark:
 ```powershell
+python -m pip install -r requirements-test.txt
 python -m pytest tests/ -v
 ```

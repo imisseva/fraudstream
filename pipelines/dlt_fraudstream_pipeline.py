@@ -9,7 +9,7 @@ from pyspark.sql.functions import (
     col, from_json, to_timestamp, to_date, hour, date_format,
     when, isnan, trim, length, current_timestamp, count, lower, upper,
     min as spark_min, max as spark_max, sum as spark_sum, first, abs as spark_abs,
-    concat_ws, coalesce
+    concat_ws, coalesce, lag
 )
 from pyspark.sql.types import StructType, StructField, StringType, DoubleType, IntegerType
 from pyspark.sql.window import Window
@@ -267,7 +267,7 @@ def dlt_gold_fraud_alerts():
         )
     ).withColumn(
         "is_predicted_fraud",
-        when(col("fraud_risk_score") >= 30, 1).otherwise(0)
+        when(col("fraud_risk_score") >= 20, 1).otherwise(0)
     )
 
     return scored.filter(col("is_predicted_fraud") == 1) \

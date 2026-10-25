@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -49,8 +50,9 @@ class KafkaEventProducer:
                 conf["sasl.mechanisms"] = sasl_mechanism or "SCRAM-SHA-256"
                 conf["sasl.username"] = sasl_username
                 conf["sasl.password"] = sasl_password
-                # Nếu chạy trên Windows kết nối Cloud không có root CA cục bộ
-                conf["enable.ssl.certificate.verification"] = False
+                ca_path = os.environ.get("KAFKA_CA_PATH")
+                if ca_path:
+                    conf["ssl.ca.location"] = ca_path
 
             self.producer = Producer(conf)
 

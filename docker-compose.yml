@@ -15,3 +15,7 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      KAFKA_CA_PATH: /run/secrets/aiven-ca.pem
+    volumes:
+      - ./ca.pem:/run/secrets/aiven-ca.pem:ro
