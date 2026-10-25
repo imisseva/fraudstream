@@ -29,6 +29,13 @@ from pyspark.sql.functions import (
     min as spark_min, max as spark_max, sum as spark_sum, first, abs as spark_abs
 )
 
+# Cấu hình RocksDB StateStore Provider (quản lý Watermark Deduplication ngoài JVM Heap chống OOM)
+spark.conf.set("spark.sql.streaming.stateStore.providerClass", "org.apache.spark.sql.execution.streaming.state.RocksDBStateStoreProvider")
+
+# Bật tính năng tự động gộp file nhỏ (Auto-Compaction) và tối ưu hóa ghi Delta
+spark.conf.set("spark.databricks.delta.optimizeWrite.enabled", "true")
+spark.conf.set("spark.databricks.delta.autoCompact.enabled", "true")
+
 # COMMAND ----------
 # 2. XÁC ĐỊNH CATALOG, SCHEMA & ĐƯỜNG DẪN CÁC BẢNG
 catalog_name = spark.sql("SELECT current_catalog()").collect()[0][0]
@@ -174,27 +181,62 @@ try:
             spark_abs(col("session_end_time").cast("long") - col("session_start_time").cast("long"))
         )
 
-    session_profiles_df.write \
-        .format("delta") \
-        .mode("overwrite") \
-        .saveAsTable(silver_session_table)
+    session_profiles_df.createOrReplaceTempView("new_session_profiles_stage")
 
-    print(f"👤 Đã cập nhật thành công hồ sơ của {spark.table(silver_session_table).count()} phiên duyệt web vào {silver_session_table}!")
+    # Tạo bảng Silver Session Profiles nếu chưa có
+    spark.sql(f"""
+    CREATE TABLE IF NOT EXISTS {silver_session_table} (
+        session_id STRING,
+        user_id STRING,
+        session_start_time TIMESTAMP,
+        session_end_time TIMESTAMP,
+        page_view_count LONG,
+        search_count LONG,
+        product_view_count LONG,
+        add_to_cart_count LONG,
+        checkout_count LONG,
+        session_cart_total DOUBLE,
+        session_ip STRING,
+        session_device_id STRING,
+        session_city STRING,
+        session_duration_sec LONG
+    ) USING DELTA
+    """)
+
+    # Upsert idempotent bằng MERGE INTO thay vì Overwrite toàn bộ bảng
+    spark.sql(f"""
+    MERGE INTO {silver_session_table} AS target
+    USING new_session_profiles_stage AS source
+    ON target.session_id = source.session_id
+    WHEN MATCHED THEN
+        UPDATE SET *
+    WHEN NOT MATCHED THEN
+        INSERT *
+    """)
+
+    total_sessions = spark.table(silver_session_table).count()
+    print(f"👤 Đã đồng bộ hồ sơ phiên duyệt web thành công! Tổng số session profiles hiện có: {total_sessions:,}")
 except Exception as e:
     print(f"ℹ️ Bỏ qua tạo session profiles vì chưa có dữ liệu clickstream: {e}")
 
 # COMMAND ----------
-# 10. GIÁM SÁT CHẤT LƯỢNG DỮ LIỆU (DATA QUALITY OBSERVABILITY)
+# 10. GIÁM SÁT CHẤT LƯỢNG DỮ LIỆU & HIỆU QUẢ WATERMARK DEDUPLICATION
+total_bronze_txn = spark.table(bronze_txn_table).count()
 total_silver_txn = spark.table(silver_txn_table).count()
 total_quarantine = spark.table(dlq_table).count()
 total_txn_all = total_silver_txn + total_quarantine
+
+# Số bản ghi bị Watermark dropDuplicates loại bỏ (trùng ID giao dịch trong cửa sổ 1 giờ)
+deduped_count = max(0, total_bronze_txn - total_txn_all)
 pass_rate = (total_silver_txn / total_txn_all * 100) if total_txn_all > 0 else 0
 
-print("=" * 60)
-print(f"📊 TỔNG GIAO DỊCH ĐÃ XỬ LÝ: {total_txn_all:,}")
-print(f"✅ GIAO DỊCH HỢP LỆ (SILVER): {total_silver_txn:,} ({pass_rate:.2f}%)")
-print(f"⚠️ GIAO DỊCH LỖI (DLQ):        {total_quarantine:,} ({100 - pass_rate:.2f}%)")
-print("=" * 60)
+print("=" * 65)
+print(f"📥 TỔNG SỐ BẢN GHI NHẬN TỪ BRONZE:        {total_bronze_txn:,}")
+print(f"🧹 BẢN GHI TRÙNG BỊ KHỬ BỞI WATERMARK:    {deduped_count:,}")
+print(f"📊 TỔNG GIAO DỊCH DUY NHẤT ĐÃ ĐÁNH GIÁ:   {total_txn_all:,}")
+print(f"✅ GIAO DỊCH HỢP LỆ VÀO SILVER:           {total_silver_txn:,} ({pass_rate:.2f}%)")
+print(f"⚠️ GIAO DỊCH LỖI VÀO DLQ (QUARANTINE):    {total_quarantine:,} ({100 - pass_rate:.2f}%)")
+print("=" * 65)
 
 # Hiển thị các lý do lỗi phổ biến nhất trong DLQ
 print("\n--- PHÂN BỐ CÁC LÝ DO LỖI DỮ LIỆU (TOP REJECTIONS) ---")
@@ -212,12 +254,25 @@ except Exception:
     pass
 
 # COMMAND ----------
-# 12. TRẢ VỀ KẾT QUẢ CHO MASTER ORCHESTRATOR
+# 12. BẢO TRÌ VÀ TỐI ƯU HÓA LƯU TRỮ DELTA LAKE (OPTIMIZE & Z-ORDER)
+try:
+    print("⚡ Đang tối ưu hóa lưu trữ Delta Lake (Z-Ordering)...")
+    spark.sql(f"OPTIMIZE {silver_txn_table} ZORDER BY (transaction_id, user_id)")
+    if spark.catalog.tableExists(silver_click_table):
+        spark.sql(f"OPTIMIZE {silver_click_table} ZORDER BY (session_id, user_id)")
+    print("✅ Đã hoàn tất Z-Ordering cho bảng silver_transactions và silver_clickstream!")
+except Exception as e:
+    print(f"ℹ️ Lưu ý bảo trì Delta Lake: {e}")
+
+# COMMAND ----------
+# 13. TRẢ VỀ KẾT QUẢ CHO MASTER ORCHESTRATOR
 import json
 try:
     session_count = spark.table(silver_session_table).count() if spark.catalog.tableExists(silver_session_table) else 0
     result_payload = {
         "status": "SUCCESS",
+        "bronze_total": total_bronze_txn,
+        "deduped_by_watermark": deduped_count,
         "silver_transactions": total_silver_txn,
         "quarantine_dlq": total_quarantine,
         "pass_rate_pct": round(pass_rate, 2),
