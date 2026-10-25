@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "6"
+# ///
 # ==============================================================================
 # FraudStream: Executive Fraud & Business Intelligence Dashboard
 # Phân tích luật fraud, KPI, rủi ro kênh và đánh giá trên nhãn simulator
@@ -6,11 +10,13 @@
 # ==============================================================================
 
 # COMMAND ----------
+
 # %md
 # # 📊 FraudStream: Executive Lakehouse Fraud & BI Dashboard
 # ### Trung tâm giám sát và phân tích gian lận thời gian thực trên nền tảng Delta Lake & Unity Catalog
 
 # COMMAND ----------
+
 # 1. THIẾT LẬP CATALOG VÀ SCHEMA
 catalog_name = spark.sql("SELECT current_catalog()").collect()[0][0]
 schema_name = spark.sql("SELECT current_database()").collect()[0][0]
@@ -23,10 +29,12 @@ model_perf_table = f"{catalog_name}.{schema_name}.gold_model_performance_history
 print(f"🏢 Lakehouse Schema: {catalog_name}.{schema_name}")
 
 # COMMAND ----------
+
 # %md
 # ## 1️⃣ KPI TỔNG QUAN VỀ GIAN LẬN & RỦI RO TÀI CHÍNH (EXECUTIVE KPIS)
 
 # COMMAND ----------
+
 # MAGIC %sql
 # MAGIC -- KPI mô tả giao dịch được gắn cờ; không diễn giải số tiền là tổn thất đã ngăn chặn
 # MAGIC WITH stats AS (
@@ -46,10 +54,12 @@ print(f"🏢 Lakehouse Schema: {catalog_name}.{schema_name}")
 # MAGIC FROM stats;
 
 # COMMAND ----------
+
 # %md
 # ## 2️⃣ PHÂN BỐ 7 KỊCH BẢN GIAN LẬN (FRAUD SCENARIOS BREAKDOWN)
 
 # COMMAND ----------
+
 # MAGIC %sql
 # MAGIC -- Tần suất xuất hiện, tổng thiệt hại và điểm rủi ro trung bình của từng kịch bản (Scenarios A -> G)
 # MAGIC WITH unnested AS (
@@ -73,10 +83,12 @@ print(f"🏢 Lakehouse Schema: {catalog_name}.{schema_name}")
 # MAGIC ORDER BY `Số vụ vi phạm` DESC;
 
 # COMMAND ----------
+
 # %md
 # ## 3️⃣ XU HƯỚNG THEO THỜI GIAN & ĐỘT BIẾN THEO GIỜ (TIME-SERIES SPIKES)
 
 # COMMAND ----------
+
 # MAGIC %sql
 # MAGIC -- Giám sát nhịp độ giao dịch và cảnh báo theo từng giờ (Hourly Trend & Spikes)
 # MAGIC SELECT 
@@ -91,10 +103,12 @@ print(f"🏢 Lakehouse Schema: {catalog_name}.{schema_name}")
 # MAGIC LIMIT 24;
 
 # COMMAND ----------
+
 # %md
 # ## 4️⃣ PHÂN TÍCH RỦI RO THEO KÊNH THANH TOÁN (CHANNEL RISK)
 
 # COMMAND ----------
+
 # MAGIC %sql
 # MAGIC -- So sánh mức độ rủi ro giữa các kênh: Web, Mobile App và POS
 # MAGIC SELECT 
@@ -109,10 +123,12 @@ print(f"🏢 Lakehouse Schema: {catalog_name}.{schema_name}")
 # MAGIC ORDER BY `Tỷ lệ gian lận (%)` DESC;
 
 # COMMAND ----------
+
 # %md
 # ## 5️⃣ PHÂN TÍCH RỦI RO QUỐC TẾ (GEOGRAPHIC FRAUD DISTRIBUTION)
 
 # COMMAND ----------
+
 # MAGIC %sql
 # MAGIC -- Phân bố gian lận theo quốc gia (Địa bàn nội địa VN vs Nước ngoài do Impossible Travel)
 # MAGIC SELECT 
@@ -127,10 +143,12 @@ print(f"🏢 Lakehouse Schema: {catalog_name}.{schema_name}")
 # MAGIC ORDER BY `Số cảnh báo` DESC;
 
 # COMMAND ----------
+
 # %md
 # ## 6️⃣ TOP MERCHANT BỊ NHẮM MỤC TIÊU NHIỀU NHẤT (TOP TARGETED MERCHANTS)
 
 # COMMAND ----------
+
 # MAGIC %sql
 # MAGIC -- Top các điểm bán / đơn vị chấp nhận thanh toán bị tin tặc tấn công nhiều nhất
 # MAGIC SELECT 
@@ -144,10 +162,12 @@ print(f"🏢 Lakehouse Schema: {catalog_name}.{schema_name}")
 # MAGIC LIMIT 10;
 
 # COMMAND ----------
+
 # %md
 # ## 7️⃣ HÀNH VI BOTNET & PHIÊN DUYỆT WEB BẤT THƯỜNG (CLICKSTREAM CORRELATION)
 
 # COMMAND ----------
+
 # MAGIC %sql
 # MAGIC -- So sánh đặc trưng hành vi duyệt web giữa Botnet tự động, Khách hàng lương thiện và Gian lận khác
 # MAGIC SELECT 
@@ -169,10 +189,12 @@ print(f"🏢 Lakehouse Schema: {catalog_name}.{schema_name}")
 # MAGIC ORDER BY `Số giao dịch` DESC;
 
 # COMMAND ----------
+
 # %md
 # ## 8️⃣ ĐÁNH GIÁ BỘ LUẬT TRÊN NHÃN SIMULATOR (SYNTHETIC BENCHMARK)
 
 # COMMAND ----------
+
 # MAGIC %sql
 # MAGIC -- Các chỉ số này đo độ khớp với ground truth tổng hợp, không phải hiệu năng trên dữ liệu thực
 # MAGIC SELECT 
@@ -191,10 +213,12 @@ print(f"🏢 Lakehouse Schema: {catalog_name}.{schema_name}")
 # MAGIC LIMIT 20;
 
 # COMMAND ----------
+
 # %md
 # ## 9️⃣ FEED CẢNH BÁO GIAN LẬN NGUY CƠ CAO (ACTIONABLE FRAUD ANALYST FEED)
 
 # COMMAND ----------
+
 # MAGIC %sql
 # MAGIC -- Bảng phân công xử lý các giao dịch có độ rủi ro cao nhất cần Fraud Ops can thiệp ngay
 # MAGIC SELECT 
@@ -212,3 +236,13 @@ print(f"🏢 Lakehouse Schema: {catalog_name}.{schema_name}")
 # MAGIC FROM gold_fraud_alerts
 # MAGIC ORDER BY fraud_risk_score DESC, event_time DESC
 # MAGIC LIMIT 50;
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC SELECT
+# MAGIC   ground_truth_is_fraud,
+# MAGIC   1 AS is_predicted_fraud,
+# MAGIC   COUNT(*) AS total
+# MAGIC FROM workspace.default.gold_fraud_alerts
+# MAGIC GROUP BY ground_truth_is_fraud;

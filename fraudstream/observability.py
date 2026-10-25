@@ -58,7 +58,7 @@ class DeltaProgressListener(StreamingQueryListener):
             float(getattr(progress, "inputRowsPerSecond", 0.0)),
             float(getattr(progress, "processedRowsPerSecond", 0.0)),
             json.dumps(source_offsets, default=str),
-        ], ["pipeline_version", "query_name", "query_id", "batch_id", "num_input_rows",
+        )], ["pipeline_version", "query_name", "query_id", "batch_id", "num_input_rows",
             "input_rows_per_second", "processed_rows_per_second", "source_end_offsets"])
         row.withColumn("recorded_at", current_timestamp()).write.format("delta") \
             .mode("append").option("mergeSchema", "true").saveAsTable(self.table_name)

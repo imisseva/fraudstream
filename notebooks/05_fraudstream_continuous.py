@@ -1,6 +1,19 @@
 # Databricks notebook source
-# Long-running Bronze -> Silver -> Gold pipeline. Start/stop via the Databricks Job.
+# /// script
+# [tool.databricks.environment]
+# environment_version = "6"
+# ///
+# MAGIC %load_ext autoreload
+# MAGIC %autoreload 2
+# MAGIC # Enables autoreload; learn more at https://docs.databricks.com/en/files/workspace-modules.html#autoreload-for-python-modules
+# MAGIC # To disable autoreload; run %autoreload 0
+
 # COMMAND ----------
+
+# Long-running Bronze -> Silver -> Gold pipeline. Start/stop via the Databricks Job.
+
+# COMMAND ----------
+
 import logging
 import json
 import os

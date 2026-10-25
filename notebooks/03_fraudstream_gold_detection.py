@@ -1,6 +1,12 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "6"
+# ///
 # Silver -> Gold rule-based fraud detection and synthetic-label evaluation.
+
 # COMMAND ----------
+
 import json
 import os
 import sys
