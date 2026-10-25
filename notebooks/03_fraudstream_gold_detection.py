@@ -21,7 +21,7 @@
 from pyspark.sql.functions import (
     col, when, lit, concat_ws, current_timestamp,
     lag, count, countDistinct, sum as spark_sum, unix_timestamp, abs as spark_abs,
-    round as spark_round
+    round as spark_round, upper, lower
 )
 from pyspark.sql.window import Window
 
@@ -48,7 +48,8 @@ silver_df = spark.table(silver_table)
 user_time_window = Window.partitionBy("user_id").orderBy(col("clean_event_time").cast("long"))
 user_range_5min = Window.partitionBy("user_id").orderBy(col("clean_event_time").cast("long")).rangeBetween(-300, 0)
 
-# Window theo device để kiểm tra vòng chia sẻ thiết bị (Device Sharing)
+# Window theo device để kiểm tra vòng chia sẻ thiết bị (Device Sharing Ring)
+device_time_window = Window.partitionBy("device_id").orderBy(col("clean_event_time").cast("long"))
 device_range_10min = Window.partitionBy("device_id").orderBy(col("clean_event_time").cast("long")).rangeBetween(-600, 0)
 
 # Window theo card để kiểm tra lặp lại giao dịch thất bại
@@ -64,10 +65,25 @@ features_df = silver_df \
         spark_abs(col("clean_event_time").cast("long") - col("prev_event_time").cast("long")) / 60
     ) \
     .withColumn("user_txn_count_5m", count("transaction_id").over(user_range_5min)) \
-    .withColumn("device_txn_count_10m", count("transaction_id").over(device_range_10min)) \
+    .withColumn("prev_device_user", lag("user_id", 1).over(device_time_window)) \
+    .withColumn("prev_device_time", lag("clean_event_time", 1).over(device_time_window)) \
+    .withColumn(
+        "device_user_switch_sec",
+        spark_abs(col("clean_event_time").cast("long") - col("prev_device_time").cast("long"))
+    ) \
+    .withColumn(
+        "is_device_user_switch",
+        when(
+            (col("prev_device_user").isNotNull()) &
+            (col("prev_device_user") != col("user_id")) &
+            (col("device_user_switch_sec") <= 600),
+            1
+        ).otherwise(0)
+    ) \
+    .withColumn("device_user_switches_10m", spark_sum("is_device_user_switch").over(device_range_10min)) \
     .withColumn(
         "card_failed_count_3m",
-        spark_sum(when(col("status").isin("DECLINED", "FAILED"), 1).otherwise(0)).over(card_range_3min)
+        spark_sum(when(upper(col("status")).isin("DECLINED", "FAILED"), 1).otherwise(0)).over(card_range_3min)
     )
 
 # COMMAND ----------
@@ -92,7 +108,7 @@ fraud_evaluated_df = features_df \
     ) \
     .withColumn(
         "flag_scenario_d",
-        when(col("device_txn_count_10m") >= 3, 1).otherwise(0)
+        when(col("device_user_switches_10m") >= 1, 1).otherwise(0)
     ) \
     .withColumn(
         "flag_scenario_e",
@@ -123,7 +139,7 @@ scored_df = fraud_evaluated_df.withColumn(
 )
 
 # COMMAND ----------
-# 8. LỌC CÁC CẢNH BÁO GIAN LẬN & GHI VÀO BẢNG GOLD ALERTS
+# 8. LỌC CÁC CẢNH BÁO GIAN LẬN & GHI VÀO BẢNG GOLD ALERTS (DELTA MERGE INTO CHUẨN)
 alerts_df = scored_df.filter(col("is_predicted_fraud") == 1) \
     .select(
         col("event_id").alias("alert_id"),
@@ -142,20 +158,86 @@ alerts_df = scored_df.filter(col("is_predicted_fraud") == 1) \
         current_timestamp().alias("alert_generated_at")
     )
 
-# Ghi vào bảng Gold Delta Table
-alerts_df.write \
-    .format("delta") \
-    .mode("overwrite") \
-    .saveAsTable(gold_alerts_table)
+# Tạo bảng Gold nếu chưa tồn tại
+spark.sql(f"""
+CREATE TABLE IF NOT EXISTS {gold_alerts_table} (
+    alert_id STRING,
+    transaction_id STRING,
+    user_id STRING,
+    card_id STRING,
+    merchant_id STRING,
+    amount DOUBLE,
+    currency STRING,
+    country STRING,
+    event_time TIMESTAMP,
+    fraud_risk_score INT,
+    detected_scenarios STRING,
+    ground_truth_is_fraud INT,
+    ground_truth_scenario STRING,
+    alert_generated_at TIMESTAMP
+) USING DELTA
+""")
 
-print(f"🚨 Đã ghi nhận tổng cộng {alerts_df.count()} cảnh báo gian lận vào bảng {gold_alerts_table}!")
+# Sử dụng Delta MERGE INTO để tích lũy cảnh báo mới mà không xóa lịch sử cũ
+alerts_df.createOrReplaceTempView("new_alerts_stage")
+
+spark.sql(f"""
+MERGE INTO {gold_alerts_table} AS target
+USING new_alerts_stage AS source
+ON target.transaction_id = source.transaction_id
+WHEN MATCHED THEN
+    UPDATE SET
+        target.fraud_risk_score = source.fraud_risk_score,
+        target.detected_scenarios = source.detected_scenarios,
+        target.alert_generated_at = source.alert_generated_at
+WHEN NOT MATCHED THEN
+    INSERT *
+""")
+
+total_alerts = spark.table(gold_alerts_table).count()
+print(f"🚨 Tích lũy cảnh báo thành công! Tổng số vụ gian lận hiện có trong bảng Gold: {total_alerts}")
 
 # COMMAND ----------
-# 9. ĐÁNH GIÁ ĐỘ CHÍNH XÁC CỦA MODEL (MODEL EVALUATION METRICS)
+# 9. ĐÁNH GIÁ ĐỘ CHÍNH XÁC TOÀN DIỆN (MODEL EVALUATION METRICS)
 # So sánh nhãn dự đoán (Predicted) với nhãn thực tế từ Simulator (Ground Truth)
 confusion_matrix = scored_df.groupBy("is_fraud", "is_predicted_fraud").count()
 print("📊 MA TRẬN NHẦM LẪN (CONFUSION MATRIX):")
 display(confusion_matrix)
+
+# Tính toán các chỉ số Precision, Recall, F1-Score
+cm_rows = confusion_matrix.collect()
+m = {"TP": 0, "FP": 0, "FN": 0, "TN": 0}
+for row in cm_rows:
+    actual = row["is_fraud"]
+    pred = row["is_predicted_fraud"]
+    cnt = row["count"]
+    if actual == 1 and pred == 1:
+        m["TP"] = cnt
+    elif actual == 0 and pred == 1:
+        m["FP"] = cnt
+    elif actual == 1 and pred == 0:
+        m["FN"] = cnt
+    elif actual == 0 and pred == 0:
+        m["TN"] = cnt
+
+tp, fp, fn, tn = m["TP"], m["FP"], m["FN"], m["TN"]
+precision = (tp / (tp + fp) * 100) if (tp + fp) > 0 else 0.0
+recall = (tp / (tp + fn) * 100) if (tp + fn) > 0 else 0.0
+f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
+accuracy = ((tp + tn) / (tp + tn + fp + fn) * 100) if (tp + tn + fp + fn) > 0 else 0.0
+
+print("\n" + "=" * 60)
+print("🎯 CHỈ SỐ ĐÁNH GIÁ HIỆU QUẢ PHÁT HIỆN GIAN LẬN:")
+print(f"   - True Positives  (Bắt đúng gian lận) : {tp:,}")
+print(f"   - False Positives (Báo nhầm người tốt): {fp:,}")
+print(f"   - False Negatives (Bỏ lọt gian lận)   : {fn:,}")
+print(f"   - True Negatives  (Giao dịch an toàn) : {tn:,}")
+print("-" * 60)
+print(f"   ⭐ Accuracy  : {accuracy:.2f}%")
+print(f"   ⭐ Precision : {precision:.2f}% (Độ tin cậy của cảnh báo)")
+print(f"   ⭐ Recall    : {recall:.2f}% (Khả năng phát hiện gian lận)")
+print(f"   ⭐ F1-Score  : {f1:.2f}%")
+print("=" * 60)
 
 # COMMAND ----------
 # 10. TRUY VẤN EXECUTIVE FRAUD KPI DASHBOARD

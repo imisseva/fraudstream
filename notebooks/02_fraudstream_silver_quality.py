@@ -26,7 +26,7 @@
 # 1. IMPORTS CÁC HÀM CẦN THIẾT
 from pyspark.sql.functions import (
     col, coalesce, to_timestamp, to_date, hour, date_format,
-    when, isnan, trim, length, current_timestamp, count
+    when, isnan, trim, length, current_timestamp, count, lower
 )
 
 # COMMAND ----------
@@ -93,9 +93,11 @@ print("⚠️ Đã đồng bộ các bản ghi lỗi vào bảng quarantine_tran
 
 # COMMAND ----------
 # 7. NHÁNH 2: LÀM GIÀU ĐẶC TRƯNG & GHI VÀO SILVER TABLE
-# Lọc bản ghi hợp lệ, khử trùng lặp và sinh features phục vụ phát hiện gian lận
+# Lọc bản ghi hợp lệ, khử trùng lặp có Watermark (chống tràn State Store) và sinh features
 clean_df = validated_df.filter(col("rejection_reason") == "VALID") \
-    .dropDuplicates(["transaction_id"]) \
+    .withWatermark("clean_event_time", "1 hour") \
+    .dropDuplicates(["transaction_id", "clean_event_time"]) \
+    .withColumn("status", lower(trim(col("status")))) \
     .withColumn("event_date", to_date(col("clean_event_time"))) \
     .withColumn("hour_of_day", hour(col("clean_event_time"))) \
     .withColumn("day_of_week", date_format(col("clean_event_time"), "E")) \
