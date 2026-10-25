@@ -7,6 +7,9 @@ from typing import Optional
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import current_timestamp, lit
 from pyspark.sql.streaming import StreamingQueryListener
+from pyspark.sql.types import (
+    DoubleType, LongType, StringType, StructField, StructType,
+)
 
 
 PIPELINE_VERSION = os.environ.get("FRAUDSTREAM_PIPELINE_VERSION", "0.1.0")
@@ -49,17 +52,26 @@ class DeltaProgressListener(StreamingQueryListener):
         progress = event.progress
         sources = getattr(progress, "sources", []) or []
         source_offsets = [getattr(source, "endOffset", None) for source in sources]
+        schema = StructType([
+            StructField("pipeline_version", StringType(), True),
+            StructField("query_name", StringType(), True),
+            StructField("query_id", StringType(), True),
+            StructField("batch_id", LongType(), True),
+            StructField("num_input_rows", LongType(), True),
+            StructField("input_rows_per_second", DoubleType(), True),
+            StructField("processed_rows_per_second", DoubleType(), True),
+            StructField("source_end_offsets", StringType(), True),
+        ])
         row = self.spark.createDataFrame([(
-            PIPELINE_VERSION,
-            progress.name,
-            progress.id,
+            str(PIPELINE_VERSION),
+            str(progress.name) if progress.name else "",
+            str(progress.id),
             int(progress.batchId),
             int(getattr(progress, "numInputRows", 0)),
             float(getattr(progress, "inputRowsPerSecond", 0.0)),
             float(getattr(progress, "processedRowsPerSecond", 0.0)),
             json.dumps(source_offsets, default=str),
-        )], ["pipeline_version", "query_name", "query_id", "batch_id", "num_input_rows",
-            "input_rows_per_second", "processed_rows_per_second", "source_end_offsets"])
+        )], schema)
         row.withColumn("recorded_at", current_timestamp()).write.format("delta") \
             .mode("append").option("mergeSchema", "true").saveAsTable(self.table_name)
 

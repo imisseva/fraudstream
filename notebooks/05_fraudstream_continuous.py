@@ -19,8 +19,20 @@ import json
 import os
 import sys
 import threading
+import time
+import warnings
 
 from pyspark.sql.functions import col, current_timestamp, expr, lit
+
+# Suppress non-fatal UserWarning from Databricks internal StreamingQueryListener
+# (DatabricksNotebookStreamingListener) that fires when an availableNow query is
+# marked finished by the server before its final progress event arrives.
+warnings.filterwarnings(
+    "ignore",
+    message=r"Listener .* threw an exception",
+    category=UserWarning,
+    module=r"pyspark\.sql\.connect\.streaming\.query",
+)
 
 workspace_notebook = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
 workspace_file = "/Workspace/" + workspace_notebook.lstrip("/")
@@ -77,11 +89,10 @@ tables = {
 # Serverless/Spark Connect does not allow changing Delta/streaming SQL
 # configurations at runtime. Schema additions are handled explicitly by
 # ensure_table() and stream writers use mergeSchema where supported.
-# Use processing-time triggers for the long-running job. `availableNow` belongs
-# to the finite batch notebooks and must not be used here.
-trigger_interval = os.environ.get("STREAMING_TRIGGER", "10 seconds")
+# Serverless/Spark Connect supports only AvailableNow or Once triggers.
+# availableNow=True processes all available data in one pass, then the
+# query terminates. Re-run the notebook (or the job) to process the next batch.
 queries = []
-gold_merge_lock = threading.RLock()
 progress_listener = DeltaProgressListener(spark, tables["metrics"])
 spark.streams.addListener(progress_listener)
 
@@ -111,10 +122,11 @@ def bronze_writer(topic, schema, table, checkpoint):
     return parsed.writeStream.format("delta").outputMode("append") \
         .option("checkpointLocation", f"{root}/{checkpoint}") \
         .option("mergeSchema", "true") \
-        .trigger(processingTime=trigger_interval).toTable(table)
+        .trigger(availableNow=True).toTable(table)
 
 
 def merge_rows(batch_df, table_name, keys):
+    spark = batch_df.sparkSession
     source = batch_df.dropDuplicates(keys)
     if not spark.catalog.tableExists(table_name):
         source.write.format("delta").mode("overwrite").saveAsTable(table_name)
@@ -134,14 +146,14 @@ def merge_rows(batch_df, table_name, keys):
 def update_session_profiles(click_batch, batch_id):
     if click_batch.isEmpty():
         return
+    spark = click_batch.sparkSession
     record_batch_metrics(spark, tables["metrics"], "silver", "session_profiles", batch_id, click_batch.count())
     touched = click_batch.select("session_id", "user_id").dropDuplicates()
     all_clicks = spark.table(tables["silver_click"]).join(touched, ["session_id", "user_id"], "inner")
-    with gold_merge_lock:
-        merge_rows(session_profiles(all_clicks).withColumn("profile_updated_at", current_timestamp()),
-                   tables["silver_sessions"], ["session_id", "user_id"])
-        touched_txns = spark.table(tables["silver_txn"]).join(touched, ["session_id", "user_id"], "inner")
-        upsert_alerts(touched_txns)
+    merge_rows(session_profiles(all_clicks).withColumn("profile_updated_at", current_timestamp()),
+               tables["silver_sessions"], ["session_id", "user_id"])
+    touched_txns = spark.table(tables["silver_txn"]).join(touched, ["session_id", "user_id"], "inner")
+    upsert_alerts(touched_txns)
 
 
 def alert_stage(scored):
@@ -156,9 +168,10 @@ def alert_stage(scored):
 
 
 def reconcile_alerts(scored):
+    spark = scored.sparkSession
     stage = alert_stage(scored)
     stage.createOrReplaceTempView("fraudstream_alert_reconcile_stage")
-    spark.sql(f"""
+    merge_sql = f"""
         MERGE INTO {tables['gold']} target
         USING fraudstream_alert_reconcile_stage source
         ON target.transaction_id = source.transaction_id
@@ -194,12 +207,22 @@ def reconcile_alerts(scored):
             source.ground_truth_is_fraud, source.ground_truth_scenario,
             source.pipeline_version, source.run_id, source.processing_time, source.alert_generated_at
         )
-    """)
+    """
+    for attempt in range(3):
+        try:
+            spark.sql(merge_sql)
+            break
+        except Exception as e:
+            if "CONCURRENT_APPEND" in str(e) and attempt < 2:
+                time.sleep(2 ** (attempt + 1))
+                continue
+            raise
 
 
 def upsert_alerts(target_txns):
     if target_txns.isEmpty():
         return
+    spark = target_txns.sparkSession
     txn_ids = target_txns.select("transaction_id").dropDuplicates()
     # Include enough preceding event-time history for geo, velocity and retry rules.
     bounds = target_txns.agg({"clean_event_time": "min"}).first()[0]
@@ -215,9 +238,9 @@ def upsert_alerts(target_txns):
 
 def score_new_transactions(txn_batch, batch_id):
     if not txn_batch.isEmpty():
+        spark = txn_batch.sparkSession
         record_batch_metrics(spark, tables["metrics"], "gold", "fraud_detection", batch_id, txn_batch.count())
-        with gold_merge_lock:
-            upsert_alerts(txn_batch)
+        upsert_alerts(txn_batch)
 
 
 # Create stream source/sink tables before downstream Delta streaming reads start.
@@ -252,36 +275,36 @@ txn_validated = validate_transactions(txn_stream)
 queries.append(txn_validated.filter(col("rejection_reason") != "VALID")
     .withColumn("quarantined_at", current_timestamp()).writeStream.format("delta").outputMode("append")
     .option("checkpointLocation", f"{root}/dlq_txn").option("mergeSchema", "true")
-    .trigger(processingTime=trigger_interval).toTable(tables["quarantine_txn"]))
+    .trigger(availableNow=True).toTable(tables["quarantine_txn"]))
 queries.append(clean_transactions(txn_stream).writeStream.format("delta").outputMode("append")
     .option("checkpointLocation", f"{root}/silver_txn").option("mergeSchema", "true")
-    .trigger(processingTime=trigger_interval).toTable(tables["silver_txn"]))
+    .trigger(availableNow=True).toTable(tables["silver_txn"]))
 
 click_stream = spark.readStream.table(tables["bronze_click"])
 click_validated = validate_clickstream(click_stream)
 queries.append(click_validated.filter(col("rejection_reason") != "VALID")
     .withColumn("quarantined_at", current_timestamp()).writeStream.format("delta").outputMode("append")
     .option("checkpointLocation", f"{root}/dlq_click").option("mergeSchema", "true")
-    .trigger(processingTime=trigger_interval).toTable(tables["quarantine_click"]))
+    .trigger(availableNow=True).toTable(tables["quarantine_click"]))
 clean_click_stream = clean_clickstream(click_stream)
 queries.append(clean_click_stream.writeStream.format("delta").outputMode("append")
     .option("checkpointLocation", f"{root}/silver_click").option("mergeSchema", "true")
-    .trigger(processingTime=trigger_interval).toTable(tables["silver_click"]))
+    .trigger(availableNow=True).toTable(tables["silver_click"]))
 
 profile_stream = spark.readStream.table(tables["silver_click"])
 queries.append(profile_stream.writeStream.foreachBatch(update_session_profiles)
     .option("checkpointLocation", f"{root}/silver_sessions")
-    .trigger(processingTime=trigger_interval).start())
+    .trigger(availableNow=True).start())
 
 gold_source = spark.readStream.table(tables["silver_txn"])
 queries.append(gold_source.writeStream.foreachBatch(score_new_transactions)
     .option("checkpointLocation", f"{root}/gold_detection")
-    .trigger(processingTime=trigger_interval).start())
+    .trigger(availableNow=True).start())
 
-logger.info("Started %s FraudStream queries; trigger=%s", len(queries), trigger_interval)
+logger.info("Started %s FraudStream queries; trigger=availableNow", len(queries))
 try:
-    spark.streams.awaitAnyTermination()
-    raise RuntimeError("A FraudStream query terminated unexpectedly; inspect query status and logs.")
+    for query in queries:
+        query.awaitTermination()
 finally:
     for query in queries:
         if query.isActive:
