@@ -1,0 +1,44 @@
+name: Deploy FraudStream to Databricks
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Bundle target to deploy
+        required: true
+        default: dev
+        type: choice
+        options: [dev, prod]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Validate bundle
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: >-
+          databricks bundle validate -t "${{ inputs.target }}"
+          --var="workspace_host=${{ secrets.DATABRICKS_HOST }}"
+          --var="existing_cluster_id=${{ secrets.DATABRICKS_CLUSTER_ID }}"
+          --var="notification_email=${{ secrets.FRAUDSTREAM_NOTIFICATION_EMAIL }}"
+          --var="job_owner_group=${{ secrets.FRAUDSTREAM_JOB_OWNER_GROUP }}"
+
+      - name: Deploy bundle
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: >-
+          databricks bundle deploy -t "${{ inputs.target }}"
+          --var="workspace_host=${{ secrets.DATABRICKS_HOST }}"
+          --var="existing_cluster_id=${{ secrets.DATABRICKS_CLUSTER_ID }}"
+          --var="notification_email=${{ secrets.FRAUDSTREAM_NOTIFICATION_EMAIL }}"
+          --var="job_owner_group=${{ secrets.FRAUDSTREAM_JOB_OWNER_GROUP }}"

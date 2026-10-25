@@ -1,0 +1,12 @@
+environment: dev
+catalog: main
+schema: fraudstream_dev
+topics:
+  transactions: transaction-events
+  clickstream: clickstream-events
+streaming:
+  trigger: 10 seconds
+  watermark: 1 hour
+security:
+  secret_scope: fraudstream
+  password_key: aiven-kafka-password

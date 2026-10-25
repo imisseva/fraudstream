@@ -1,3 +1,4 @@
+# Databricks notebook source
 # ==============================================================================
 # FraudStream: Aiven Kafka -> Bronze Delta (finite availableNow ingestion)
 # This notebook is intended to run from the checked-out FraudStream project root.

@@ -30,13 +30,20 @@ jobs:
         java-version: '17'
 
     - name: Install Dependencies
-      run: python -m pip install -r requirements-test.txt
+      run: python -m pip install -e ".[dev]"
 
     - name: Run Unit and Spark Transformation Tests
       run: python -m pytest tests/ -v
 
     - name: Verify Python Sources
-      run: python -m compileall -q simulator fraudstream notebooks pipelines tests
+      run: |
+        python -m compileall -q simulator fraudstream notebooks pipelines tests
+        python - <<'PY'
+        from pathlib import Path
+        for path in Path("notebooks").glob("*.py"):
+            first_line = path.read_text(encoding="utf-8").splitlines()[0]
+            assert first_line == "# Databricks notebook source", f"Missing notebook marker: {path}"
+        PY
 
     - name: Run Simulator Dry-Run Smoke Test
       run: python -m simulator.main --dry-run --rate 100 --max-events 200

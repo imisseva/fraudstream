@@ -1,5 +1,7 @@
 """Reusable Spark parsing, quality, deduplication, and fraud scoring transformations."""
 
+import os
+
 from pyspark.sql import DataFrame
 from pyspark.sql.functions import (
     abs as spark_abs,
@@ -37,6 +39,9 @@ from pyspark.sql.types import (
     TimestampType,
 )
 from pyspark.sql.window import Window
+
+PIPELINE_VERSION = os.environ.get("FRAUDSTREAM_PIPELINE_VERSION", "0.1.0")
+RUN_ID = os.environ.get("DATABRICKS_RUN_ID", "local")
 
 
 transaction_schema = StructType([
@@ -107,7 +112,8 @@ def parse_kafka_events(kafka_df: DataFrame, schema: StructType) -> DataFrame:
         "kafka_key", "raw_payload", "kafka_topic", "kafka_partition", "kafka_offset",
         "kafka_timestamp", *fields,
     )
-    return parsed.withColumn(
+    return parsed.withColumn("schema_version", lit("1.0")) \
+        .withColumn(
         "ingest_error",
         when(col("raw_payload").isNull(), "NULL_PAYLOAD")
         .when(col("_corrupt_record").isNotNull(), "CORRUPT_JSON_FIELD")
@@ -124,6 +130,7 @@ def bronze_event_schema(event_schema: StructType) -> StructType:
         StructField("kafka_partition", IntegerType(), True),
         StructField("kafka_offset", LongType(), True),
         StructField("kafka_timestamp", TimestampType(), True),
+        StructField("schema_version", StringType(), True),
         StructField("ingest_error", StringType(), True),
     ])
     event_fields = [field for field in event_schema.fields if field.name != "_corrupt_record"]
@@ -175,7 +182,10 @@ def clean_transactions(df: DataFrame) -> DataFrame:
                     .when(col("amount") < 1000000, "LOW")
                     .when(col("amount") <= 10000000, "MEDIUM")
                     .when(col("amount") <= 20000000, "HIGH").otherwise("VERY_HIGH")) \
-        .withColumn("silver_processed_at", current_timestamp())
+        .withColumn("silver_processed_at", current_timestamp()) \
+        .withColumn("pipeline_version", lit(PIPELINE_VERSION)) \
+        .withColumn("run_id", lit(RUN_ID)) \
+        .withColumn("processing_time", current_timestamp())
 
 
 def validate_clickstream(df: DataFrame) -> DataFrame:
@@ -198,7 +208,10 @@ def clean_clickstream(df: DataFrame) -> DataFrame:
     return valid.dropDuplicates(["event_id", "clean_event_time"]) \
         .withColumn("click_date", to_date(col("clean_event_time"))) \
         .withColumn("click_hour", hour(col("clean_event_time"))) \
-        .withColumn("silver_processed_at", current_timestamp())
+        .withColumn("silver_processed_at", current_timestamp()) \
+        .withColumn("pipeline_version", lit(PIPELINE_VERSION)) \
+        .withColumn("run_id", lit(RUN_ID)) \
+        .withColumn("processing_time", current_timestamp())
 
 
 def session_profiles(click_df: DataFrame) -> DataFrame:
@@ -277,5 +290,8 @@ def score_transactions(
             when(col("flag_scenario_f") == 1, "BOTNET_AUTOMATION"),
             when(col("flag_scenario_g") == 1, "CART_TAMPERING"),
         ),
-    ).withColumn("is_predicted_fraud", when(col("fraud_risk_score") >= 20, 1).otherwise(0))
+    ).withColumn("is_predicted_fraud", when(col("fraud_risk_score") >= 20, 1).otherwise(0)) \
+        .withColumn("pipeline_version", lit(PIPELINE_VERSION)) \
+        .withColumn("run_id", lit(RUN_ID)) \
+        .withColumn("processing_time", current_timestamp())
     return scored

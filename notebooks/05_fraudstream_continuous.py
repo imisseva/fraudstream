@@ -1,3 +1,4 @@
+# Databricks notebook source
 # Long-running Bronze -> Silver -> Gold pipeline. Start/stop via the Databricks Job.
 # COMMAND ----------
 import logging
@@ -15,6 +16,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from fraudstream.databricks_config import kafka_options
+from fraudstream.observability import DeltaProgressListener, record_batch_metrics
 from fraudstream.spark_ops import (
     bronze_event_schema,
     clean_clickstream,
@@ -52,6 +54,7 @@ tables = {
     "quarantine_txn": f"{catalog_name}.{schema_name}.quarantine_transactions",
     "quarantine_click": f"{catalog_name}.{schema_name}.quarantine_clickstream",
     "gold": f"{catalog_name}.{schema_name}.gold_fraud_alerts",
+    "metrics": f"{catalog_name}.{schema_name}.fraudstream_pipeline_metrics",
 }
 
 spark.conf.set("spark.sql.streaming.stateStore.providerClass", "org.apache.spark.sql.execution.streaming.state.RocksDBStateStoreProvider")
@@ -59,6 +62,8 @@ spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
 trigger_interval = os.environ.get("STREAMING_TRIGGER", "10 seconds")
 queries = []
 gold_merge_lock = threading.RLock()
+progress_listener = DeltaProgressListener(spark, tables["metrics"])
+spark.streams.addListener(progress_listener)
 
 
 def ensure_table(name, empty_df):
@@ -109,6 +114,7 @@ def merge_rows(batch_df, table_name, keys):
 def update_session_profiles(click_batch, batch_id):
     if click_batch.isEmpty():
         return
+    record_batch_metrics(spark, tables["metrics"], "silver", "session_profiles", batch_id, click_batch.count())
     touched = click_batch.select("session_id", "user_id").dropDuplicates()
     all_clicks = spark.table(tables["silver_click"]).join(touched, ["session_id", "user_id"], "inner")
     with gold_merge_lock:
@@ -125,6 +131,7 @@ def alert_stage(scored):
         "fraud_risk_score", "detected_scenarios", "session_id", "session_duration_sec",
         col("is_fraud").alias("ground_truth_is_fraud"),
         col("fraud_scenario").alias("ground_truth_scenario"), "is_predicted_fraud",
+        "pipeline_version", "run_id", "processing_time",
     ).withColumn("alert_generated_at", current_timestamp()).dropDuplicates(["transaction_id"])
 
 
@@ -151,16 +158,21 @@ def reconcile_alerts(scored):
             target.session_duration_sec = source.session_duration_sec,
             target.ground_truth_is_fraud = source.ground_truth_is_fraud,
             target.ground_truth_scenario = source.ground_truth_scenario,
+            target.pipeline_version = source.pipeline_version,
+            target.run_id = source.run_id,
+            target.processing_time = source.processing_time,
             target.alert_generated_at = source.alert_generated_at
         WHEN NOT MATCHED AND source.is_predicted_fraud = 1 THEN INSERT (
             alert_id, transaction_id, user_id, card_id, merchant_id, amount, currency,
             country, event_time, fraud_risk_score, detected_scenarios, session_id,
-            session_duration_sec, ground_truth_is_fraud, ground_truth_scenario, alert_generated_at
+            session_duration_sec, ground_truth_is_fraud, ground_truth_scenario,
+            pipeline_version, run_id, processing_time, alert_generated_at
         ) VALUES (
             source.alert_id, source.transaction_id, source.user_id, source.card_id, source.merchant_id,
             source.amount, source.currency, source.country, source.event_time, source.fraud_risk_score,
             source.detected_scenarios, source.session_id, source.session_duration_sec,
-            source.ground_truth_is_fraud, source.ground_truth_scenario, source.alert_generated_at
+            source.ground_truth_is_fraud, source.ground_truth_scenario,
+            source.pipeline_version, source.run_id, source.processing_time, source.alert_generated_at
         )
     """)
 
@@ -183,6 +195,7 @@ def upsert_alerts(target_txns):
 
 def score_new_transactions(txn_batch, batch_id):
     if not txn_batch.isEmpty():
+        record_batch_metrics(spark, tables["metrics"], "gold", "fraud_detection", batch_id, txn_batch.count())
         with gold_merge_lock:
             upsert_alerts(txn_batch)
 
@@ -253,3 +266,4 @@ finally:
     for query in queries:
         if query.isActive:
             query.stop()
+    spark.streams.removeListener(progress_listener)

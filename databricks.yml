@@ -1,0 +1,31 @@
+bundle:
+  name: fraudstream
+
+include:
+  - resources/*.yml
+
+variables:
+  workspace_host:
+    description: Databricks workspace URL
+    default: ""
+  existing_cluster_id:
+    description: Existing Databricks cluster used by FraudStream jobs
+    default: ""
+  notification_email:
+    description: Email that receives job failure notifications
+    default: ""
+  job_owner_group:
+    description: Workspace group allowed to manage FraudStream jobs
+    default: ""
+
+targets:
+  dev:
+    default: true
+    mode: development
+    workspace:
+      host: ${var.workspace_host}
+
+  prod:
+    mode: production
+    workspace:
+      host: ${var.workspace_host}

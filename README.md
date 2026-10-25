@@ -88,6 +88,13 @@ fraudstream/
 ├── docker-compose.yml              # Simulator nối tới Kafka Cloud bên ngoài
 ├── requirements.txt                # Dependencies của simulator
 ├── requirements-test.txt           # Dependencies cho unit tests và local Spark
+├── pyproject.toml                  # Package metadata và dev dependencies
+├── databricks.yml                  # Databricks Declarative Automation Bundle
+├── conf/                           # Environment configuration templates
+│   ├── dev.yml
+│   └── prod.yml
+├── resources/                      # Databricks jobs deployed by the bundle
+│   └── fraudstream_jobs.yml
 ├── README.md
 │
 ├── notebooks/                      # Notebooks Medallion trên Databricks Lakehouse
@@ -102,7 +109,7 @@ fraudstream/
 │   └── dlt_fraudstream_pipeline.py # DLT/Lakeflow thử nghiệm, yêu cầu Bronze đã tồn tại
 │
 ├── workflows/
-│   └── databricks_workflow_job.json# Workflow entrypoint với tham số run_mode
+│   └── databricks_workflow_job.json# Legacy/manual Workflow definition
 │
 ├── simulator/
 │   ├── __init__.py
@@ -327,7 +334,7 @@ python -m simulator.main --dry-run --rate 50 --max-events 200
 1. Đồng bộ toàn bộ repo vào Databricks Workspace/Git Folder để thư mục `fraudstream/` và `notebooks/` cùng nằm dưới project root.
 2. Tạo Secret Scope `fraudstream` và key `aiven-kafka-password`; đặt mật khẩu Aiven trong secret này.
 3. Cấu hình environment variables trên job cluster: `BOOTSTRAP_SERVERS`, `SASL_USERNAME`, `SASL_MECHANISM`, `DATABRICKS_SECRET_SCOPE`, `DATABRICKS_KAFKA_PASSWORD_KEY`, `KAFKA_CA_PATH`. CA PEM có thể đặt trong Unity Catalog Volume; `KAFKA_CA_PATH` phải là đường dẫn đọc được từ driver.
-4. Import `workflows/databricks_workflow_job.json` trong Workflows và chọn compute phù hợp. Cấu hình email/webhook notification trong UI của Job để nhận cảnh báo khi query lỗi.
+4. Với triển khai thủ công, có thể import `workflows/databricks_workflow_job.json`. Với CI/CD, dùng `databricks.yml` và resources trong `resources/`; Databricks Bundle là đường triển khai chính.
 
 #### Chạy batch demo
 Chạy Workflow với `run_mode=BATCH` (mặc định). Nó xử lý Kafka → Bronze → Silver → Gold → Analytics rồi kết thúc. Các checkpoint được lưu trong Volume và tái sử dụng khi chạy lại.
@@ -336,6 +343,17 @@ Chạy Workflow với `run_mode=BATCH` (mặc định). Nó xử lý Kafka → B
 Chạy Workflow với `run_mode=STREAMING`. Job duy trì các query Bronze/Silver/Gold; dừng run của Job để dừng query một cách có kiểm soát. Không chạy đồng thời BATCH và STREAMING trên cùng catalog/schema. Giữ nguyên checkpoint để resume; để replay từ đầu, dùng schema/đích/checkpoint riêng.
 
 Trong streaming mode, Gold đánh giá mỗi transaction khi nó vào Silver; chất lượng tương quan clickstream phụ thuộc vào việc session profile đã được cập nhật trước thời điểm chấm. Dashboard analytics là notebook batch riêng, có thể chạy định kỳ hoặc chạy thủ công.
+
+#### Triển khai bằng Databricks Bundle
+Đặt `workspace_host` và `existing_cluster_id` cho target, rồi chạy từ máy có Databricks CLI:
+
+```powershell
+databricks bundle validate -t dev --var="workspace_host=https://<workspace-host>" --var="existing_cluster_id=<cluster-id>" --var="notification_email=<email>" --var="job_owner_group=<workspace-group>"
+databricks bundle deploy -t dev --var="workspace_host=https://<workspace-host>" --var="existing_cluster_id=<cluster-id>" --var="notification_email=<email>" --var="job_owner_group=<workspace-group>"
+databricks bundle run fraudstream_streaming -t dev
+```
+
+Job `fraudstream_batch` và `fraudstream_streaming` được tách riêng để không chạy nhầm hai chế độ trên cùng checkpoint. Cấu hình notification, quyền Job và secret scope trong workspace/CI environment.
 
 #### Smoke test trên Databricks/Aiven
 1. Khởi động simulator bằng Docker Compose hoặc host; xác nhận log producer không có delivery/SSL errors.

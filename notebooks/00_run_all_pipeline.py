@@ -1,3 +1,4 @@
+# Databricks notebook source
 # Databricks master entrypoint. BATCH runs the finite DAG; STREAMING stays active.
 # COMMAND ----------
 import json

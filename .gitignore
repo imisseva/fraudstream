@@ -23,6 +23,10 @@ ENV/
 *.p12
 *.jks
 ca.pem
+.databricks/
+dist/
+build/
+*.egg-info/
 
 # Testing
 .pytest_cache/

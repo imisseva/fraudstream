@@ -1,3 +1,4 @@
+# Databricks notebook source
 # Silver -> Gold rule-based fraud detection and synthetic-label evaluation.
 # COMMAND ----------
 import json
@@ -44,6 +45,7 @@ alerts = scored.filter(col("is_predicted_fraud") == 1).select(
     "fraud_risk_score", "detected_scenarios", "session_id", "session_duration_sec",
     col("is_fraud").alias("ground_truth_is_fraud"),
     col("fraud_scenario").alias("ground_truth_scenario"),
+    "pipeline_version", "run_id", "processing_time",
 ).dropDuplicates(["transaction_id"]).withColumn("alert_generated_at", current_timestamp())
 reconcile_stage = scored.select(
     col("event_id").alias("alert_id"), "transaction_id", "user_id", "card_id", "merchant_id",
@@ -51,6 +53,7 @@ reconcile_stage = scored.select(
     "fraud_risk_score", "detected_scenarios", "session_id", "session_duration_sec",
     col("is_fraud").alias("ground_truth_is_fraud"),
     col("fraud_scenario").alias("ground_truth_scenario"), "is_predicted_fraud",
+    "pipeline_version", "run_id", "processing_time",
 ).withColumn("alert_generated_at", current_timestamp()).dropDuplicates(["transaction_id"])
 
 if not spark.catalog.tableExists(gold_alerts):
@@ -77,16 +80,21 @@ else:
             target.session_duration_sec = source.session_duration_sec,
             target.ground_truth_is_fraud = source.ground_truth_is_fraud,
             target.ground_truth_scenario = source.ground_truth_scenario,
+            target.pipeline_version = source.pipeline_version,
+            target.run_id = source.run_id,
+            target.processing_time = source.processing_time,
             target.alert_generated_at = source.alert_generated_at
         WHEN NOT MATCHED AND source.is_predicted_fraud = 1 THEN INSERT (
             alert_id, transaction_id, user_id, card_id, merchant_id, amount, currency,
             country, event_time, fraud_risk_score, detected_scenarios, session_id,
-            session_duration_sec, ground_truth_is_fraud, ground_truth_scenario, alert_generated_at
+            session_duration_sec, ground_truth_is_fraud, ground_truth_scenario,
+            pipeline_version, run_id, processing_time, alert_generated_at
         ) VALUES (
             source.alert_id, source.transaction_id, source.user_id, source.card_id, source.merchant_id,
             source.amount, source.currency, source.country, source.event_time, source.fraud_risk_score,
             source.detected_scenarios, source.session_id, source.session_duration_sec,
-            source.ground_truth_is_fraud, source.ground_truth_scenario, source.alert_generated_at
+            source.ground_truth_is_fraud, source.ground_truth_scenario,
+            source.pipeline_version, source.run_id, source.processing_time, source.alert_generated_at
         )
     """)
 

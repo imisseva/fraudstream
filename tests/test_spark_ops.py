@@ -72,8 +72,8 @@ def spark_events(spark):
 
 def test_documented_rules_and_boundaries(spark, spark_events):
     sessions = spark.createDataFrame(
-        [("s1", 30, 2, 1_000_000.0)],
-        "session_id string, session_duration_sec long, product_view_count long, session_cart_total double",
+        [("s1", "u9", 30, 2, 1_000_000.0)],
+        "session_id string, user_id string, session_duration_sec long, product_view_count long, session_cart_total double",
     )
     scored = {row.transaction_id: row for row in score_transactions(spark_events, sessions, ["m1"]).collect()}
     assert scored["v3"].flag_scenario_b == 1  # exactly five minutes is included
@@ -99,7 +99,7 @@ def test_non_vnd_and_exact_cart_threshold_do_not_trigger_amount_rules(spark):
     ]
     schema = "event_id string, transaction_id string, card_id string, user_id string, device_id string, clean_event_time timestamp, country string, amount double, currency string, status string, channel string, session_id string, merchant_id string, is_fraud int, fraud_scenario string"
     txns = spark.createDataFrame(rows, schema)
-    sessions = spark.createDataFrame([("s", 20, 1, 1_000_000.0)], "session_id string, session_duration_sec long, product_view_count long, session_cart_total double")
+    sessions = spark.createDataFrame([("s", "u2", 20, 1, 1_000_000.0)], "session_id string, user_id string, session_duration_sec long, product_view_count long, session_cart_total double")
     results = {row.transaction_id: row for row in score_transactions(txns, sessions, ["cart"]).collect()}
     assert results["usd"].flag_scenario_a == 0
     assert results["cart"].flag_scenario_g == 0  # strict greater-than 2M

@@ -1,0 +1,38 @@
+resources:
+  jobs:
+    fraudstream_batch:
+      name: FraudStream Batch
+      max_concurrent_runs: 1
+      max_retries: 2
+      min_retry_interval_millis: 60000
+      email_notifications:
+        on_failure:
+          - ${var.notification_email}
+      permissions:
+        - level: CAN_MANAGE
+          group_name: ${var.job_owner_group}
+      tasks:
+        - task_key: batch_pipeline
+          existing_cluster_id: ${var.existing_cluster_id}
+          notebook_task:
+            notebook_path: ../notebooks/00_run_all_pipeline.py
+            base_parameters:
+              run_mode: BATCH
+
+    fraudstream_streaming:
+      name: FraudStream Streaming
+      max_concurrent_runs: 1
+      timeout_seconds: 0
+      email_notifications:
+        on_failure:
+          - ${var.notification_email}
+      permissions:
+        - level: CAN_MANAGE
+          group_name: ${var.job_owner_group}
+      tasks:
+        - task_key: continuous_pipeline
+          existing_cluster_id: ${var.existing_cluster_id}
+          notebook_task:
+            notebook_path: ../notebooks/05_fraudstream_continuous.py
+            base_parameters:
+              run_mode: STREAMING

@@ -1,3 +1,4 @@
+# Databricks notebook source
 # Bronze -> Silver quality and quarantine. Continuous processing is in notebook 05.
 # COMMAND ----------
 import json
