@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 try:
     dbutils.widgets.dropdown("run_mode", "BATCH", ["BATCH", "STREAMING"], "Pipeline mode")
+    dbutils.widgets.text("kafka_password", "", "Aiven Kafka Password (Optional if secret configured)")
 except Exception:
     pass
 
@@ -14,14 +15,22 @@ run_mode = dbutils.widgets.get("run_mode").strip().upper()
 if run_mode not in ("BATCH", "STREAMING"):
     raise ValueError("run_mode must be BATCH or STREAMING")
 
+try:
+    kafka_pwd = dbutils.widgets.get("kafka_password")
+except Exception:
+    kafka_pwd = ""
+
 print(f"Started at {datetime.now(timezone.utc).isoformat()} | run_mode={run_mode}")
 
 
 def run_step(label, path, timeout=1800):
     started = time.time()
     print(f"Starting {label}: {path}")
+    args = {"run_mode": run_mode}
+    if kafka_pwd:
+        args["kafka_password"] = kafka_pwd
     try:
-        output = dbutils.notebook.run(path, timeout_seconds=timeout, arguments={"run_mode": run_mode})
+        output = dbutils.notebook.run(path, timeout_seconds=timeout, arguments=args)
     except Exception as exc:
         raise RuntimeError(f"Pipeline step '{label}' failed: {exc}") from exc
     duration = round(time.time() - started, 2)
