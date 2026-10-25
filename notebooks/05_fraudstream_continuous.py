@@ -34,6 +34,10 @@ logger = logging.getLogger("fraudstream.continuous")
 logger.setLevel(logging.INFO)
 
 try:
+    dbutils.widgets.dropdown("run_mode", "STREAMING", ["STREAMING"], "Pipeline mode")
+except Exception:
+    pass
+try:
     run_mode = dbutils.widgets.get("run_mode").strip().upper()
 except Exception:
     run_mode = "STREAMING"
@@ -60,6 +64,8 @@ tables = {
 # Serverless/Spark Connect does not allow overriding the state-store provider.
 # The default provider is sufficient for this pipeline.
 spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
+# Use processing-time triggers for the long-running job. `availableNow` belongs
+# to the finite batch notebooks and must not be used here.
 trigger_interval = os.environ.get("STREAMING_TRIGGER", "10 seconds")
 queries = []
 gold_merge_lock = threading.RLock()
