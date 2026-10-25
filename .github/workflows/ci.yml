@@ -37,7 +37,7 @@ jobs:
 
     - name: Verify Python Sources
       run: |
-        python -m compileall -q simulator fraudstream notebooks pipelines tests
+        python -m compileall -q simulator src notebooks pipelines tests
         python - <<'PY'
         from pathlib import Path
         for path in Path("notebooks").glob("*.py"):
