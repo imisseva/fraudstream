@@ -29,7 +29,8 @@ silver_txn = f"{catalog_name}.{schema_name}.silver_transactions"
 silver_sessions = f"{catalog_name}.{schema_name}.silver_session_profiles"
 gold_alerts = f"{catalog_name}.{schema_name}.gold_fraud_alerts"
 gold_perf = f"{catalog_name}.{schema_name}.gold_model_performance_history"
-spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
+# Serverless does not allow changing Delta SQL configuration at notebook
+# runtime; Gold schema evolution is handled explicitly by the MERGE columns.
 
 transactions = spark.table(silver_txn)
 sessions = spark.table(silver_sessions) if spark.catalog.tableExists(silver_sessions) else None

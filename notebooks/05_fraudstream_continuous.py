@@ -61,9 +61,9 @@ tables = {
     "metrics": f"{catalog_name}.{schema_name}.fraudstream_pipeline_metrics",
 }
 
-# Serverless/Spark Connect does not allow overriding the state-store provider.
-# The default provider is sufficient for this pipeline.
-spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
+# Serverless/Spark Connect does not allow changing Delta/streaming SQL
+# configurations at runtime. Schema additions are handled explicitly by
+# ensure_table() and stream writers use mergeSchema where supported.
 # Use processing-time triggers for the long-running job. `availableNow` belongs
 # to the finite batch notebooks and must not be used here.
 trigger_interval = os.environ.get("STREAMING_TRIGGER", "10 seconds")
