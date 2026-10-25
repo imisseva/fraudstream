@@ -32,9 +32,9 @@ silver_sessions = f"{catalog_name}.{schema_name}.silver_session_profiles"
 quarantine_txn = f"{catalog_name}.{schema_name}.quarantine_transactions"
 quarantine_click = f"{catalog_name}.{schema_name}.quarantine_clickstream"
 
-spark.conf.set("spark.sql.streaming.stateStore.providerClass", "org.apache.spark.sql.execution.streaming.state.RocksDBStateStoreProvider")
-spark.conf.set("spark.databricks.delta.optimizeWrite.enabled", "true")
-spark.conf.set("spark.databricks.delta.autoCompact.enabled", "true")
+# These cluster-level tuning settings are intentionally omitted: Databricks
+# Free Edition/serverless (Spark Connect) does not allow changing the
+# state-store provider or Delta write optimizations at notebook runtime.
 
 txn_stream = spark.readStream.table(bronze_txn)
 txn_validated = validate_transactions(txn_stream)

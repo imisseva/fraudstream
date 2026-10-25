@@ -57,7 +57,8 @@ tables = {
     "metrics": f"{catalog_name}.{schema_name}.fraudstream_pipeline_metrics",
 }
 
-spark.conf.set("spark.sql.streaming.stateStore.providerClass", "org.apache.spark.sql.execution.streaming.state.RocksDBStateStoreProvider")
+# Serverless/Spark Connect does not allow overriding the state-store provider.
+# The default provider is sufficient for this pipeline.
 spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
 trigger_interval = os.environ.get("STREAMING_TRIGGER", "10 seconds")
 queries = []
