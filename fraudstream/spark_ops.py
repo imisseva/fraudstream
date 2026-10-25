@@ -143,15 +143,13 @@ def normalize_event_time(df: DataFrame, source_column: str = "event_time") -> Da
     # try_to_timestamp SQL function returns NULL instead, allowing the next
     # supported format to be attempted safely.
     def safe_timestamp(pattern: str):
-        return expr(f"try_to_timestamp(`{source_column}`, '{pattern}')")
+        escaped = pattern.replace("'", "''")
+        return expr(f"try_to_timestamp(`{source_column}`, '{escaped}')")
 
     return df.withColumn(
         "clean_event_time",
         coalesce(
-            safe_timestamp("yyyy-MM-dd'T'HH:mm:ss'Z'"),
-            safe_timestamp("yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'"),
-            safe_timestamp("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"),
-            safe_timestamp("yyyy-MM-dd'T'HH:mm:ss"),
+            expr(f"try_to_timestamp(`{source_column}`)"),
             safe_timestamp("dd/MM/yyyy HH:mm"),
         ),
     )
