@@ -31,7 +31,7 @@ def event(event_id, txn_id, card, user, device, at, *, country="VN", amount=100_
           currency="VND", status="success", channel="pos", session_id=None, fraud=0, merchant="m1"):
     return {
         "event_id": event_id, "transaction_id": txn_id, "card_id": card, "user_id": user,
-        "device_id": device, "clean_event_time": at, "country": country, "amount": amount,
+        "device_id": device, "clean_event_time": at, "country": country, "amount": float(amount),
         "currency": currency, "status": status, "channel": channel, "session_id": session_id,
         "merchant_id": merchant, "is_fraud": fraud, "fraud_scenario": None,
     }
