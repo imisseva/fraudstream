@@ -80,11 +80,27 @@ Hệ thống được thiết kế tối ưu làm nguồn dữ liệu mẫu (Dat
 
 ```
 fraudstream/
+├── .github/
+│   └── workflows/
+│       └── ci.yml                  # GitHub Actions CI/CD Pipeline (Unit Tests & Linter)
 ├── Dockerfile                      # Build image Python 3.11-slim
 ├── .dockerignore
 ├── docker-compose.yml              # Zookeeper + Kafka + Kafka UI + Simulator
 ├── requirements.txt
 ├── README.md
+│
+├── notebooks/                      # Bộ 5 Notebooks Medallion trên Databricks Lakehouse
+│   ├── 00_run_all_pipeline.py      # Master Orchestrator (1-click trigger & metrics)
+│   ├── 01_fraudstream_ingestion.py # Bronze Ingestion (Transactions & Clickstream)
+│   ├── 02_fraudstream_silver_quality.py # Silver Quality, RocksDB Dedup & Session Profiles
+│   ├── 03_fraudstream_gold_detection.py # Gold 7-Scenario Engine & Model Evaluation History
+│   └── 04_fraud_dashboard_analytics.py # Executive Lakehouse Fraud & BI Dashboard
+│
+├── pipelines/
+│   └── dlt_fraudstream_pipeline.py # Delta Live Tables (DLT) Declarative Pipeline với Expectations
+│
+├── workflows/
+│   └── databricks_workflow_job.json# Cấu hình Multi-Task Databricks Workflows DAG
 │
 ├── simulator/
 │   ├── __init__.py
