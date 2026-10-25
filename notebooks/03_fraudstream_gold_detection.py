@@ -310,3 +310,19 @@ display(spark.sql(f"""
     ORDER BY fraud_risk_score DESC, event_time DESC
     LIMIT 20
 """))
+
+# COMMAND ----------
+# 11. TRẢ VỀ KẾT QUẢ CHO MASTER ORCHESTRATOR
+import json
+try:
+    result_payload = {
+        "status": "SUCCESS",
+        "gold_alerts": total_alerts,
+        "accuracy_pct": round(accuracy, 2),
+        "precision_pct": round(precision, 2),
+        "recall_pct": round(recall, 2),
+        "f1_score_pct": round(f1, 2)
+    }
+    dbutils.notebook.exit(json.dumps(result_payload))
+except Exception:
+    pass

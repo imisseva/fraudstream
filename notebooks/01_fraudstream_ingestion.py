@@ -180,3 +180,18 @@ display(spark.sql(f"SELECT transaction_id, user_id, amount, currency, event_time
 print("--- PREVIEW BRONZE CLICKSTREAM ---")
 display(spark.sql(f"SELECT event_id, event_type, session_id, user_id, page, cart_total, event_time FROM {target_click_table} ORDER BY event_time DESC LIMIT 20"))
 
+# COMMAND ----------
+# 7. TRẢ VỀ KẾT QUẢ CHO MASTER ORCHESTRATOR
+import json
+try:
+    txn_count = spark.table(target_txn_table).count()
+    click_count = spark.table(target_click_table).count()
+    result_payload = {
+        "status": "SUCCESS",
+        "bronze_transactions": txn_count,
+        "bronze_clickstream": click_count
+    }
+    dbutils.notebook.exit(json.dumps(result_payload))
+except Exception:
+    pass
+

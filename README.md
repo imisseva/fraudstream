@@ -295,6 +295,26 @@ python -m simulator.main --dry-run --rate 50 --max-events 200
 
 ---
 
+### 3. Vận hành Pipeline trên Databricks (Orchestration & Workflows):
+
+#### Cách 1: Chạy trực tiếp qua Master Notebook (1-Click Run)
+1. Mở notebook **[`notebooks/00_run_all_pipeline.py`](file:///d:/my-projects/fraudstream/notebooks/00_run_all_pipeline.py)** trên Databricks.
+2. Nhập mật khẩu Kafka (nếu cần) vào widget `kafka_password`.
+3. Bấm **Run All**. Notebook sẽ tự động kích hoạt tuần tự:
+   - Bước 1: `01_fraudstream_ingestion` (Kafka $\rightarrow$ Bronze)
+   - Bước 2: `02_fraudstream_silver_quality` (Bronze $\rightarrow$ Silver & DLQ)
+   - Bước 3: `03_fraudstream_gold_detection` (Silver $\rightarrow$ 7 Fraud Scenarios Gold)
+   - Bước 4: `04_fraud_dashboard_analytics` (Executive KPI Dashboard)
+4. Xem bảng tổng kết thời gian thực thi (Latency) và số lượng bản ghi tại từng tầng.
+
+#### Cách 2: Triển khai Databricks Workflows (Multi-Task Job Schedule)
+1. Vào mục **Workflows** trên Databricks $\rightarrow$ Chọn **Create Job**.
+2. Nhấn vào biểu tượng ba chấm $\rightarrow$ Chọn **Edit as JSON**.
+3. Dán toàn bộ nội dung từ file **[`workflows/databricks_workflow_job.json`](file:///d:/my-projects/fraudstream/workflows/databricks_workflow_job.json)** vào và lưu lại.
+4. Hệ thống sẽ tự động tạo sơ đồ Directed Acyclic Graph (DAG) gồm 4 tasks có ràng buộc phụ thuộc rõ ràng, hỗ trợ retry và tự động thông báo khi có lỗi.
+
+---
+
 ## 🧪 Chạy Kiểm thử (Unit Tests)
 
 Bộ 14 unit tests kiểm tra toàn diện schema, 5 scenarios, data quality, watermark timestamps và topic routing:

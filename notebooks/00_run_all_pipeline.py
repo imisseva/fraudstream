@@ -4,21 +4,23 @@
 #   Bước 1: 01_fraudstream_ingestion     (Kafka -> Bronze Transactions & Clickstream)
 #   Bước 2: 02_fraudstream_silver_quality (Bronze -> Silver Cleaned, DLQ & Session Profiles)
 #   Bước 3: 03_fraudstream_gold_detection (Silver -> 7 Fraud Scenarios Detection & Gold Alerts)
+#   Bước 4: 04_fraud_dashboard_analytics (Lakehouse BI KPIs & Risk Analysis)
 # ==============================================================================
 
 # COMMAND ----------
 # %md
 # # 🚀 FraudStream: Master Lakehouse Pipeline Orchestrator
-# ### Tự động hóa chuỗi xử lý luồng Medallion (Bronze ➔ Silver ➔ Gold) chỉ với 1 cú click.
+# ### Tự động hóa chuỗi xử lý luồng Medallion (Bronze ➔ Silver ➔ Gold ➔ BI Dashboard) chỉ với 1 cú click.
 
 # COMMAND ----------
 # 1. THIẾT LẬP THAM SỐ (WIDGETS & CONFIG)
 import time
+import json
 from datetime import datetime
 
 # Định nghĩa các widget điều khiển
 dbutils.widgets.text("kafka_password", "", "Aiven Kafka Password (Optional if set in notebook)")
-dbutils.widgets.dropdown("run_mode", "ALL", ["ALL", "INGESTION_ONLY", "SILVER_ONLY", "GOLD_ONLY"], "Chế độ chạy")
+dbutils.widgets.dropdown("run_mode", "ALL", ["ALL", "INGESTION_ONLY", "SILVER_ONLY", "GOLD_ONLY", "ANALYTICS_ONLY"], "Chế độ chạy")
 
 kafka_pwd = dbutils.widgets.get("kafka_password")
 run_mode = dbutils.widgets.get("run_mode")
@@ -43,16 +45,28 @@ def run_pipeline_step(step_name: str, notebook_path: str, timeout_sec: int = 600
     start_time = time.time()
     status = "SUCCESS"
     error_msg = ""
+    parsed_payload = {}
     
     try:
         # Gọi thực thi notebook con trên Databricks
-        result = dbutils.notebook.run(notebook_path, timeout_seconds=timeout_sec, arguments=arguments)
+        result_raw = dbutils.notebook.run(notebook_path, timeout_seconds=timeout_sec, arguments=arguments)
         elapsed = round(time.time() - start_time, 2)
+        
+        # Parse kết quả JSON trả về từ dbutils.notebook.exit
+        try:
+            parsed_payload = json.loads(result_raw) if result_raw else {}
+        except Exception:
+            parsed_payload = {"raw_output": str(result_raw)}
+            
         print(f"✅ HOÀN THÀNH: {step_name} trong {elapsed} giây.")
+        if parsed_payload:
+            print(f"   📊 Metrics: {parsed_payload}")
+            
         pipeline_stats.append({
             "step": step_name,
             "status": "SUCCESS",
             "duration_sec": elapsed,
+            "metrics": json.dumps(parsed_payload, ensure_ascii=False),
             "error": ""
         })
     except Exception as e:
@@ -65,6 +79,7 @@ def run_pipeline_step(step_name: str, notebook_path: str, timeout_sec: int = 600
             "step": step_name,
             "status": "FAILED",
             "duration_sec": elapsed,
+            "metrics": "{}",
             "error": error_msg
         })
         # Dừng toàn bộ pipeline nếu có bước thất bại
@@ -101,6 +116,14 @@ if run_mode in ("ALL", "GOLD_ONLY"):
         timeout_sec=600
     )
 
+# BƯỚC 4: ANALYTICS DASHBOARD
+if run_mode in ("ALL", "ANALYTICS_ONLY"):
+    run_pipeline_step(
+        step_name="4. Lakehouse BI & Analytics (KPIs & Risk Distribution)",
+        notebook_path="./04_fraud_dashboard_analytics",
+        timeout_sec=300
+    )
+
 total_duration = round(time.time() - pipeline_start, 2)
 
 # COMMAND ----------
@@ -111,14 +134,17 @@ print("#"*70)
 
 # Tạo DataFrame tổng kết trạng thái
 summary_data = [
-    (item["step"], item["status"], item["duration_sec"], item["error"])
+    (item["step"], item["status"], item["duration_sec"], item["metrics"], item["error"])
     for item in pipeline_stats
 ]
-summary_df = spark.createDataFrame(summary_data, ["Pipeline Step", "Status", "Duration (s)", "Error Details"])
+summary_df = spark.createDataFrame(
+    summary_data,
+    ["Pipeline Step", "Status", "Duration (s)", "Step Metrics", "Error Details"]
+)
 display(summary_df)
 
 # COMMAND ----------
-# 5. XEM TỔNG HỢP NHANH CÁC BẢNG LỒNG GHÉP TRONG LAKEHOUSE
+# 5. XEM TỔNG HỢP NHANH CÁC BẢNG TRONG LAKEHOUSE
 catalog_name = spark.sql("SELECT current_catalog()").collect()[0][0]
 schema_name = spark.sql("SELECT current_database()").collect()[0][0]
 
@@ -140,4 +166,3 @@ try:
     print(f"   🥇 Gold Fraud Alerts   : {gold_alerts:,} detected alerts")
 except Exception as e:
     print(f"ℹ️ Không thể đọc một số bảng (có thể chưa chạy đủ các tầng): {e}")
-

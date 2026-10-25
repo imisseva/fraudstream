@@ -210,3 +210,19 @@ try:
     display(spark.sql(f"SELECT session_id, user_id, session_duration_sec, page_view_count, product_view_count, session_cart_total FROM {silver_session_table} ORDER BY session_duration_sec ASC LIMIT 20"))
 except Exception:
     pass
+
+# COMMAND ----------
+# 12. TRẢ VỀ KẾT QUẢ CHO MASTER ORCHESTRATOR
+import json
+try:
+    session_count = spark.table(silver_session_table).count() if spark.catalog.tableExists(silver_session_table) else 0
+    result_payload = {
+        "status": "SUCCESS",
+        "silver_transactions": total_silver_txn,
+        "quarantine_dlq": total_quarantine,
+        "pass_rate_pct": round(pass_rate, 2),
+        "session_profiles": session_count
+    }
+    dbutils.notebook.exit(json.dumps(result_payload))
+except Exception:
+    pass
