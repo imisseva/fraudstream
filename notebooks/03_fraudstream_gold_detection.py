@@ -1,20 +1,22 @@
 # ==============================================================================
 # FraudStream: Databricks PySpark Gold Layer (Fraud Detection Engine)
-# Đọc Silver Cleaned Table -> Phát hiện 5 Kịch bản Gian lận -> Bảng Gold Alerts
+# Đọc Silver Cleaned Table & Session Profiles -> Phát hiện 7 Kịch bản Gian lận -> Bảng Gold Alerts
 # ==============================================================================
 
 # COMMAND ----------
 # %md
 # # 🥇 FraudStream: Gold Layer & Real-time Fraud Detection Engine
-# ### Phát hiện 5 kịch bản gian lận tài chính & Xuất cảnh báo Real-time
+# ### Phát hiện 7 kịch bản gian lận tài chính & Hành vi người dùng (Stream-Stream Correlated)
 #
 # ---
-# #### 🔍 5 Kịch bản gian lận được phát hiện tự động:
+# #### 🔍 7 Kịch bản gian lận được phát hiện tự động:
 # 1. **Kịch bản A (High-Value Spikes):** Giao dịch có giá trị đột biến vượt ngưỡng ($\ge 20.000.000$ VND).
 # 2. **Kịch bản B (Velocity Attack):** Cùng 1 tài khoản thực hiện $\ge 3$ giao dịch liên tiếp trong vòng 5 phút.
 # 3. **Kịch bản C (Geographic Anomaly / Impossible Travel):** Cùng 1 user giao dịch tại 2 quốc gia khác nhau trong thời gian ngắn ($< 15$ phút).
-# 4. **Kịch bản D (Device/IP Sharing Ring):** Một thiết bị (`device_id`) hoặc IP bị sử dụng chung bởi nhiều `user_id` / `card_id` khác nhau.
+# 4. **Kịch bản D (Device/IP Sharing Ring):** Nhiều `user_id` khác nhau thao tác trên cùng 1 `device_id` trong 10 phút.
 # 5. **Kịch bản E (Repeated Failed Attempts):** Thẻ bị thử lại liên tiếp sau khi bị từ chối (`DECLINED`/`FAILED`).
+# 6. **Kịch bản F (Botnet / Headless Automation):** Giao dịch web nhưng không có session duyệt web hoặc thời gian lướt web $< 5$ giây.
+# 7. **Kịch bản G (Cart Parameter Tampering):** Giá trị thanh toán chênh lệch bất thường so với tổng giá trị giỏ hàng được chọn.
 
 # COMMAND ----------
 # 1. IMPORTS CÁC HÀM CẦN THIẾT
@@ -30,16 +32,37 @@ from pyspark.sql.window import Window
 catalog_name = spark.sql("SELECT current_catalog()").collect()[0][0]
 schema_name = spark.sql("SELECT current_database()").collect()[0][0]
 
-silver_table = f"{catalog_name}.{schema_name}.silver_transactions"
+silver_txn_table = f"{catalog_name}.{schema_name}.silver_transactions"
+silver_session_table = f"{catalog_name}.{schema_name}.silver_session_profiles"
 gold_alerts_table = f"{catalog_name}.{schema_name}.gold_fraud_alerts"
-gold_checkpoint = f"/Volumes/{catalog_name}/{schema_name}/fraud_checkpoints/gold_alerts"
 
-print(f"📖 Nguồn Silver: {silver_table}")
-print(f"🚨 Đích Gold Alerts: {gold_alerts_table}")
+print(f"📖 Nguồn Silver Transactions: {silver_txn_table}")
+print(f"📖 Nguồn Silver Sessions:     {silver_session_table}")
+print(f"🚨 Đích Gold Alerts:          {gold_alerts_table}")
 
 # COMMAND ----------
-# 3. ĐỌC DỮ LIỆU SẠCH TỪ SILVER TABLE
-silver_df = spark.table(silver_table)
+# 3. ĐỌC DỮ LIỆU SẠCH TỪ SILVER TABLES & NỐI LIÊN KẾT (JOIN) VỚI CLICKSTREAM
+silver_txn_df = spark.table(silver_txn_table)
+
+try:
+    session_profiles_df = spark.table(silver_session_table) \
+        .select(
+            col("session_id"),
+            col("session_duration_sec"),
+            col("page_view_count"),
+            col("product_view_count"),
+            col("session_cart_total")
+        )
+    # LEFT JOIN giữa Giao dịch và Hồ sơ phiên duyệt web qua session_id
+    enriched_df = silver_txn_df.join(session_profiles_df, on="session_id", how="left")
+    print(f"🔗 Đã liên kết thành công giao dịch tài chính với dữ liệu clickstream!")
+except Exception as e:
+    print(f"ℹ️ Chưa có bảng silver_session_profiles, tạo cột mặc định: {e}")
+    enriched_df = silver_txn_df \
+        .withColumn("session_duration_sec", lit(None).cast("long")) \
+        .withColumn("page_view_count", lit(None).cast("long")) \
+        .withColumn("product_view_count", lit(None).cast("long")) \
+        .withColumn("session_cart_total", lit(None).cast("double"))
 
 # COMMAND ----------
 # 4. TRIỂN KHAI WINDOWS ĐỂ PHÁT HIỆN TỪNG KỊCH BẢN GIAN LẬN
@@ -57,7 +80,7 @@ card_range_3min = Window.partitionBy("card_id").orderBy(col("clean_event_time").
 
 # COMMAND ----------
 # 5. TÍNH TOÁN CÁC ĐẶC TRƯNG HÀNH VI (BEHAVIORAL FEATURES)
-features_df = silver_df \
+features_df = enriched_df \
     .withColumn("prev_country", lag("country", 1).over(user_time_window)) \
     .withColumn("prev_event_time", lag("clean_event_time", 1).over(user_time_window)) \
     .withColumn(
@@ -87,7 +110,7 @@ features_df = silver_df \
     )
 
 # COMMAND ----------
-# 6. ĐÁNH GIÁ 5 LUẬT GIAN LẬN (FRAUD RULE ENGINE)
+# 6. ĐÁNH GIÁ 7 LUẬT GIAN LẬN (FINANCIAL + CLICKSTREAM RULES)
 fraud_evaluated_df = features_df \
     .withColumn(
         "flag_scenario_a",
@@ -113,17 +136,38 @@ fraud_evaluated_df = features_df \
     .withColumn(
         "flag_scenario_e",
         when(col("card_failed_count_3m") >= 2, 1).otherwise(0)
+    ) \
+    .withColumn(
+        "flag_scenario_f",
+        when(
+            (col("channel") == "web") & (
+                col("session_id").isNull() |
+                (col("session_duration_sec").isNotNull() & (col("session_duration_sec") < 5)) |
+                (col("product_view_count").isNotNull() & (col("product_view_count") == 0))
+            ),
+            1
+        ).otherwise(0)
+    ) \
+    .withColumn(
+        "flag_scenario_g",
+        when(
+            (col("session_cart_total").isNotNull()) &
+            (spark_abs(col("amount") - col("session_cart_total")) > 2000000),
+            1
+        ).otherwise(0)
     )
 
 # COMMAND ----------
-# 7. TÍNH TOÁN RISK SCORE & XÁC ĐỊNH GIAN LẬN
+# 7. TÍNH TOÁN RISK SCORE & TỔNG HỢP CẢNH BÁO
 scored_df = fraud_evaluated_df.withColumn(
     "fraud_risk_score",
     (col("flag_scenario_a") * 35) +
     (col("flag_scenario_b") * 30) +
     (col("flag_scenario_c") * 40) +
     (col("flag_scenario_d") * 25) +
-    (col("flag_scenario_e") * 20)
+    (col("flag_scenario_e") * 20) +
+    (col("flag_scenario_f") * 35) +
+    (col("flag_scenario_g") * 30)
 ).withColumn(
     "detected_scenarios",
     concat_ws(", ",
@@ -131,7 +175,9 @@ scored_df = fraud_evaluated_df.withColumn(
         when(col("flag_scenario_b") == 1, "VELOCITY_SPIKE").otherwise(None),
         when(col("flag_scenario_c") == 1, "GEOGRAPHIC_ANOMALY").otherwise(None),
         when(col("flag_scenario_d") == 1, "DEVICE_SHARING").otherwise(None),
-        when(col("flag_scenario_e") == 1, "REPEATED_ATTEMPTS").otherwise(None)
+        when(col("flag_scenario_e") == 1, "REPEATED_ATTEMPTS").otherwise(None),
+        when(col("flag_scenario_f") == 1, "BOTNET_AUTOMATION").otherwise(None),
+        when(col("flag_scenario_g") == 1, "CART_TAMPERING").otherwise(None)
     )
 ).withColumn(
     "is_predicted_fraud",
@@ -153,6 +199,8 @@ alerts_df = scored_df.filter(col("is_predicted_fraud") == 1) \
         col("clean_event_time").alias("event_time"),
         col("fraud_risk_score"),
         col("detected_scenarios"),
+        col("session_id"),
+        col("session_duration_sec"),
         col("is_fraud").alias("ground_truth_is_fraud"),
         col("fraud_scenario").alias("ground_truth_scenario"),
         current_timestamp().alias("alert_generated_at")
@@ -172,6 +220,8 @@ CREATE TABLE IF NOT EXISTS {gold_alerts_table} (
     event_time TIMESTAMP,
     fraud_risk_score INT,
     detected_scenarios STRING,
+    session_id STRING,
+    session_duration_sec LONG,
     ground_truth_is_fraud INT,
     ground_truth_scenario STRING,
     alert_generated_at TIMESTAMP
@@ -189,6 +239,8 @@ WHEN MATCHED THEN
     UPDATE SET
         target.fraud_risk_score = source.fraud_risk_score,
         target.detected_scenarios = source.detected_scenarios,
+        target.session_id = source.session_id,
+        target.session_duration_sec = source.session_duration_sec,
         target.alert_generated_at = source.alert_generated_at
 WHEN NOT MATCHED THEN
     INSERT *
@@ -251,6 +303,8 @@ display(spark.sql(f"""
         country,
         fraud_risk_score,
         detected_scenarios,
+        session_id,
+        session_duration_sec,
         event_time
     FROM {gold_alerts_table}
     ORDER BY fraud_risk_score DESC, event_time DESC

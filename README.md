@@ -190,15 +190,65 @@ fraudstream/
 
 ---
 
-## 🚨 5 Kịch bản gian lận chi tiết (Fraud Scenarios)
+## 🚨 7 Kịch bản gian lận chi tiết (Fraud Scenarios)
 
-| Scenario | Tên kịch bản | Chiều phân tích | Mô tả hành vi giả lập |
+| Scenario | Tên kịch bản | Chiều phân tích | Mô tả hành vi phát hiện |
 | :--- | :--- | :--- | :--- |
-| **A** | **High Value Transaction** | Amount | Giao dịch số tiền đột biến gấp 8x - 25x mức tối đa thông thường của user tại các merchant vàng bạc, đá quý, đồ xa xỉ. |
-| **B** | **Transaction Velocity** | Time Window | Cùng một thẻ phát sinh liên tiếp 8 - 12 giao dịch chỉ trong vòng dưới 60 giây (burst quẹt thẻ tự động). |
-| **C** | **Geographic Anomaly** | Location / IP | Cùng một thẻ xuất hiện ở 2 quốc gia cách xa nhau trong khoảng thời gian không thể di chuyển ("Impossible Travel", ví dụ: vừa ở VN 5 phút sau đã ở US). |
-| **D** | **Device / IP Sharing** | Device / Network | Một thiết bị (`device_id`) hoặc 1 IP duy nhất thực hiện thanh toán cho nhiều `user_id` và `card_id` hoàn toàn khác nhau (mô hình Fraud Ring / thiết bị nuôi clone). |
-| **E** | **Repeated Attempts** | Behavior / Status | Một thẻ thực hiện liên tiếp 3 - 5 giao dịch bị từ chối (`status="failed"`), sau đó xuất hiện 1 giao dịch thành công giá trị lớn (`status="success"`). |
+| **A** | **High Value Transaction** | Amount | Giao dịch số tiền đột biến $\ge 20.000.000$ VND tại các merchant vàng bạc, đá quý, đồ xa xỉ. |
+| **B** | **Transaction Velocity** | Time Window | Cùng một user/thẻ phát sinh $\ge 3$ giao dịch chỉ trong cửa sổ trượt 5 phút (burst quẹt thẻ tự động). |
+| **C** | **Geographic Anomaly** | Location / IP | Cùng một thẻ xuất hiện ở 2 quốc gia khác nhau trong thời gian di chuyển không khả thi ("Impossible Travel", $\le 15$ phút). |
+| **D** | **Device / IP Sharing** | Device / Network | Một thiết bị (`device_id`) có nhiều `user_id` khác nhau luân phiên giao dịch trong 10 phút (Fraud Ring / farm tài khoản). |
+| **E** | **Repeated Attempts** | Behavior / Status | Một thẻ bị từ chối liên tiếp $\ge 2$ lần (`DECLINED`/`FAILED`), sau đó cố gắng thực hiện giao dịch mới. |
+| **F** | **Botnet / Headless Automation** | Clickstream Correlation | Giao dịch web nhưng không có phiên duyệt web hoặc thời lượng lướt web $< 5$ giây, $0$ lượt xem sản phẩm. |
+| **G** | **Cart Parameter Tampering** | Clickstream Correlation | Giá trị thanh toán thực tế chênh lệch bất thường ($> 2.000.000$ VND) so với tổng giỏ hàng ghi nhận từ Clickstream. |
+
+---
+
+## 🏛️ Kiến trúc Databricks Medallion Lakehouse (Notebooks)
+
+Hệ thống xử lý luồng và phát hiện gian lận được tổ chức chuẩn theo mô hình Medallion Lakehouse trên Databricks:
+
+```
+                  +---------------------------+
+                  |  Aiven Kafka Cloud Topics |
+                  +-------------+-------------+
+                                |
+               +----------------v----------------+
+               |  01_fraudstream_ingestion.py   |  (Bronze Layer)
+               |  - bronze_transactions         |
+               |  - bronze_clickstream          |
+               +----------------+----------------+
+                                |
+               +----------------v----------------+
+               | 02_fraudstream_silver_quality.py|  (Silver Layer)
+               |  - Data Quality Rules           |
+               |  - quarantine_transactions(DLQ) |
+               |  - silver_transactions (Dedup)  |
+               |  - silver_session_profiles      |
+               +----------------+----------------+
+                                |
+               +----------------v----------------+
+               | 03_fraudstream_gold_detection.py|  (Gold Layer)
+               |  - Behavioral Feature Windows   |
+               |  - 7 Scenarios Detection Engine |
+               |  - Delta MERGE INTO (Upsert)    |
+               |  - Confusion Matrix & F1-Score  |
+               +----------------+----------------+
+                                |
+               +----------------v----------------+
+               | 04_fraud_dashboard_analytics.py|  (BI & Analytics)
+               |  - Executive Fraud KPIs         |
+               |  - Risk Distribution & Channels |
+               |  - Top Fraud Alerts Feed        |
+               +---------------------------------+
+```
+
+### Chi tiết các Notebook:
+- **[`00_run_all_pipeline.py`](file:///d:/my-projects/fraudstream/notebooks/00_run_all_pipeline.py):** Master Pipeline Orchestrator — Tự động kích hoạt toàn bộ luồng Bronze $\rightarrow$ Silver $\rightarrow$ Gold chỉ với **1 cú click**, báo cáo thời gian thực thi và trạng thái từng bước.
+- **[`01_fraudstream_ingestion.py`](file:///d:/my-projects/fraudstream/notebooks/01_fraudstream_ingestion.py):** Tầng Bronze — Đọc song song 2 topics `transaction-events` và `clickstream-events` qua SASL/SSL với chứng chỉ PEM của Aiven Cloud, ghi vào Delta tables có checkpoint trên Unity Catalog Volume.
+- **[`02_fraudstream_silver_quality.py`](file:///d:/my-projects/fraudstream/notebooks/02_fraudstream_silver_quality.py):** Tầng Silver — Chuẩn hóa timestamp đa định dạng, lọc lỗi vào Dead Letter Queue (`quarantine_transactions`), khử trùng lặp có Watermark (1 giờ), và tổng hợp hành vi duyệt web thành `silver_session_profiles`.
+- **[`03_fraudstream_gold_detection.py`](file:///d:/my-projects/fraudstream/notebooks/03_fraudstream_gold_detection.py):** Tầng Gold — Stream-Join giao dịch với session profiles, chạy Window Functions phát hiện 7 kịch bản gian lận, tính `fraud_risk_score`, tích lũy cảnh báo bằng Delta `MERGE INTO`, và tự động xuất ma trận nhầm lẫn (Accuracy, Precision, Recall, F1).
+- **[`04_fraud_dashboard_analytics.py`](file:///d:/my-projects/fraudstream/notebooks/04_fraud_dashboard_analytics.py):** Tầng Analytics — Bộ truy vấn SQL phân tích tổng thiệt hại tài chính được bảo vệ, phân bố gian lận theo kênh (Web/Mobile/POS) và quốc gia.
 
 ---
 

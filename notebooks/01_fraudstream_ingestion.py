@@ -1,13 +1,16 @@
 # ==============================================================================
 # FraudStream: Databricks PySpark Structured Streaming Ingestion
-# Kết nối Aiven Kafka Cloud -> Đọc topic transaction-events -> Hiển thị Real-time
+# Kết nối Aiven Kafka Cloud -> Đọc song song 2 topics:
+#   1. transaction-events  -> bronze_transactions
+#   2. clickstream-events  -> bronze_clickstream
 # ==============================================================================
 
 # COMMAND ----------
-# 1. IMPORTS & ĐỊNH NGHĨA SCHEMA 16 TRƯỜNG CHUẨN
+# 1. IMPORTS & ĐỊNH NGHĨA SCHEMAS (TRANSACTIONS & CLICKSTREAM)
 from pyspark.sql.types import StructType, StructField, StringType, DoubleType, IntegerType
 from pyspark.sql.functions import from_json, col
 
+# Schema 16+1 trường giao dịch tài chính
 transaction_schema = StructType([
     StructField("event_id", StringType(), True),
     StructField("event_type", StringType(), True),
@@ -27,6 +30,29 @@ transaction_schema = StructType([
     StructField("is_fraud", IntegerType(), True),
     StructField("fraud_scenario", StringType(), True),
     StructField("session_id", StringType(), True)
+])
+
+# Schema 19 trường hành vi duyệt web (Clickstream Funnel)
+clickstream_schema = StructType([
+    StructField("event_id", StringType(), True),
+    StructField("event_type", StringType(), True),
+    StructField("event_time", StringType(), True),
+    StructField("user_id", StringType(), True),
+    StructField("session_id", StringType(), True),
+    StructField("device_id", StringType(), True),
+    StructField("ip_address", StringType(), True),
+    StructField("city", StringType(), True),
+    StructField("user_type", StringType(), True),
+    StructField("page", StringType(), True),
+    StructField("query", StringType(), True),
+    StructField("results_count", IntegerType(), True),
+    StructField("product_id", StringType(), True),
+    StructField("product_name", StringType(), True),
+    StructField("category", StringType(), True),
+    StructField("price", DoubleType(), True),
+    StructField("quantity", IntegerType(), True),
+    StructField("cart_total", DoubleType(), True),
+    StructField("referrer", StringType(), True)
 ])
 
 # COMMAND ----------
@@ -78,55 +104,79 @@ gIUHcQ==
 # Tiền tố kafkashaded. là bắt buộc trên Databricks để nạp đúng ScramLoginModule
 jaas_config = f'kafkashaded.org.apache.kafka.common.security.scram.ScramLoginModule required username="{USERNAME}" password="{PASSWORD}";'
 
-# COMMAND ----------
-# 3. ĐỌC STREAMING TỪ TOPIC TRANSACTION-EVENTS (TÍCH HỢP TRUSTSTORE PEM TRỰC TIẾP)
-kafka_stream_df = spark.readStream \
-    .format("kafka") \
-    .option("kafka.bootstrap.servers", BOOTSTRAP_SERVERS) \
-    .option("kafka.security.protocol", "SASL_SSL") \
-    .option("kafka.sasl.mechanism", "SCRAM-SHA-256") \
-    .option("kafka.sasl.jaas.config", jaas_config) \
-    .option("kafka.ssl.truststore.type", "PEM") \
-    .option("kafka.ssl.truststore.certificates", AIVEN_CA_CERT) \
-    .option("subscribe", "transaction-events") \
-    .option("startingOffsets", "earliest") \
-    .load()
+def create_kafka_stream(topic_name: str):
+    """Hàm tiện ích nạp stream an toàn từ Aiven Kafka."""
+    return spark.readStream \
+        .format("kafka") \
+        .option("kafka.bootstrap.servers", BOOTSTRAP_SERVERS) \
+        .option("kafka.security.protocol", "SASL_SSL") \
+        .option("kafka.sasl.mechanism", "SCRAM-SHA-256") \
+        .option("kafka.sasl.jaas.config", jaas_config) \
+        .option("kafka.ssl.truststore.type", "PEM") \
+        .option("kafka.ssl.truststore.certificates", AIVEN_CA_CERT) \
+        .option("subscribe", topic_name) \
+        .option("startingOffsets", "earliest") \
+        .load()
 
 # COMMAND ----------
-# 4. PARSE DỮ LIỆU JSON TỪ CỘT 'VALUE'
-parsed_transactions_df = kafka_stream_df \
-    .selectExpr("CAST(key AS STRING) AS user_key", "CAST(value AS STRING) AS json_value") \
-    .select(col("user_key"), from_json(col("json_value"), transaction_schema).alias("data")) \
-    .select("data.*")
-
-# COMMAND ----------
-# 5. TỰ ĐỘNG TẠO VOLUME LƯU CHECKPOINTS (CHUẨN UNITY CATALOG BẢO MẬT)
+# 3. THIẾT LẬP CATALOG, VOLUMES & TÊN BẢNG BRONZE
 catalog_name = spark.sql("SELECT current_catalog()").collect()[0][0]
 schema_name = spark.sql("SELECT current_database()").collect()[0][0]
 
 spark.sql(f"CREATE VOLUME IF NOT EXISTS {catalog_name}.{schema_name}.fraud_checkpoints")
-checkpoint_path = f"/Volumes/{catalog_name}/{schema_name}/fraud_checkpoints/txn_bronze"
-target_table_name = f"{catalog_name}.{schema_name}.bronze_transactions"
 
-print(f"✅ Checkpoint sẵn sàng tại: {checkpoint_path}")
-print(f"✅ Target Bronze Delta Table: {target_table_name}")
+target_txn_table = f"{catalog_name}.{schema_name}.bronze_transactions"
+target_click_table = f"{catalog_name}.{schema_name}.bronze_clickstream"
+
+checkpoint_txn_path = f"/Volumes/{catalog_name}/{schema_name}/fraud_checkpoints/txn_bronze"
+checkpoint_click_path = f"/Volumes/{catalog_name}/{schema_name}/fraud_checkpoints/click_bronze"
+
+print(f"✅ Target Transactions: {target_txn_table}")
+print(f"✅ Target Clickstream:  {target_click_table}")
 
 # COMMAND ----------
-# 6. GHI LUỒNG STREAM VÀO DELTA LAKE BẢNG BRONZE (CHUẨN DATABRICKS SERVERLESS)
-# Databricks Serverless yêu cầu trigger(availableNow=True) thay vì ProcessingTime vô tận
-query = parsed_transactions_df.writeStream \
+# 4. STREAM 1: INGEST TOPIC TRANSACTION-EVENTS -> BRONZE_TRANSACTIONS
+kafka_txn_raw = create_kafka_stream("transaction-events")
+
+parsed_txn_df = kafka_txn_raw \
+    .selectExpr("CAST(key AS STRING) AS user_key", "CAST(value AS STRING) AS json_value") \
+    .select(col("user_key"), from_json(col("json_value"), transaction_schema).alias("data")) \
+    .select("data.*")
+
+query_txn = parsed_txn_df.writeStream \
     .format("delta") \
     .outputMode("append") \
-    .option("checkpointLocation", checkpoint_path) \
+    .option("checkpointLocation", checkpoint_txn_path) \
     .trigger(availableNow=True) \
-    .toTable(target_table_name)
+    .toTable(target_txn_table)
 
-# Chờ Spark xử lý hết dữ liệu có sẵn từ Kafka rồi hoàn thành batch
-query.awaitTermination()
-print("🚀 Đã nạp thành công toàn bộ dữ liệu từ Kafka vào Delta Bronze!")
+query_txn.awaitTermination()
+print("🚀 Đã nạp thành công toàn bộ giao dịch vào bronze_transactions!")
 
 # COMMAND ----------
-# 7. TRUY VẤN VÀ HIỂN THỊ DỮ LIỆU REAL-TIME TỪ DELTA TABLE
-# Chạy cell này bất cứ lúc nào để xem các giao dịch mới nhất được nạp vào
-display(spark.sql(f"SELECT * FROM {target_table_name} ORDER BY event_time DESC LIMIT 50"))
+# 5. STREAM 2: INGEST TOPIC CLICKSTREAM-EVENTS -> BRONZE_CLICKSTREAM
+kafka_click_raw = create_kafka_stream("clickstream-events")
+
+parsed_click_df = kafka_click_raw \
+    .selectExpr("CAST(key AS STRING) AS user_key", "CAST(value AS STRING) AS json_value") \
+    .select(col("user_key"), from_json(col("json_value"), clickstream_schema).alias("data")) \
+    .select("data.*")
+
+query_click = parsed_click_df.writeStream \
+    .format("delta") \
+    .outputMode("append") \
+    .option("checkpointLocation", checkpoint_click_path) \
+    .trigger(availableNow=True) \
+    .toTable(target_click_table)
+
+query_click.awaitTermination()
+print("🌐 Đã nạp thành công toàn bộ hành vi clickstream vào bronze_clickstream!")
+
+# COMMAND ----------
+# 6. TRUY VẤN VÀ HIỂN THỊ DỮ LIỆU TỪ 2 BẢNG BRONZE
+print("--- PREVIEW BRONZE TRANSACTIONS ---")
+display(spark.sql(f"SELECT transaction_id, user_id, amount, currency, event_time, session_id FROM {target_txn_table} ORDER BY event_time DESC LIMIT 20"))
+
+print("--- PREVIEW BRONZE CLICKSTREAM ---")
+display(spark.sql(f"SELECT event_id, event_type, session_id, user_id, page, cart_total, event_time FROM {target_click_table} ORDER BY event_time DESC LIMIT 20"))
 
