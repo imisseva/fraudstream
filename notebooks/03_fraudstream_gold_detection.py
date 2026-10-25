@@ -20,8 +20,9 @@
 
 # COMMAND ----------
 # 1. IMPORTS CÁC HÀM CẦN THIẾT
+from datetime import datetime
 from pyspark.sql.functions import (
-    col, when, lit, concat_ws, current_timestamp,
+    col, when, lit, concat_ws, current_timestamp, to_timestamp,
     lag, count, countDistinct, sum as spark_sum, unix_timestamp, abs as spark_abs,
     round as spark_round, upper, lower
 )
@@ -35,10 +36,12 @@ schema_name = spark.sql("SELECT current_database()").collect()[0][0]
 silver_txn_table = f"{catalog_name}.{schema_name}.silver_transactions"
 silver_session_table = f"{catalog_name}.{schema_name}.silver_session_profiles"
 gold_alerts_table = f"{catalog_name}.{schema_name}.gold_fraud_alerts"
+gold_model_perf_table = f"{catalog_name}.{schema_name}.gold_model_performance_history"
 
 print(f"📖 Nguồn Silver Transactions: {silver_txn_table}")
 print(f"📖 Nguồn Silver Sessions:     {silver_session_table}")
 print(f"🚨 Đích Gold Alerts:          {gold_alerts_table}")
+print(f"📈 Đích Performance History:  {gold_model_perf_table}")
 
 # COMMAND ----------
 # 3. ĐỌC DỮ LIỆU SẠCH TỪ SILVER TABLES & NỐI LIÊN KẾT (JOIN) VỚI CLICKSTREAM
@@ -292,7 +295,27 @@ print(f"   ⭐ F1-Score  : {f1:.2f}%")
 print("=" * 60)
 
 # COMMAND ----------
-# 10. TRUY VẤN EXECUTIVE FRAUD KPI DASHBOARD
+# 10. LƯU LỊCH SỬ HIỆU NĂNG MÔ HÌNH (MODEL PERFORMANCE & DRIFT OBSERVABILITY)
+try:
+    perf_data = [(
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        int(tp), int(fp), int(fn), int(tn),
+        float(round(accuracy, 2)), float(round(precision, 2)),
+        float(round(recall, 2)), float(round(f1, 2)),
+        int(tp + fp + fn + tn)
+    )]
+    perf_df = spark.createDataFrame(
+        perf_data,
+        ["evaluated_at", "true_positives", "false_positives", "false_negatives", "true_negatives", "accuracy_pct", "precision_pct", "recall_pct", "f1_score_pct", "total_evaluated"]
+    ).withColumn("evaluated_at", to_timestamp(col("evaluated_at")))
+
+    perf_df.write.format("delta").mode("append").saveAsTable(gold_model_perf_table)
+    print(f"📈 Đã lưu trữ vết hiệu năng vào bảng {gold_model_perf_table} (F1: {f1:.2f}%)!")
+except Exception as e:
+    print(f"ℹ️ Không thể lưu lịch sử hiệu năng mô hình: {e}")
+
+# COMMAND ----------
+# 11. TRUY VẤN EXECUTIVE FRAUD KPI DASHBOARD
 print("🏆 TOP CẢNH BÁO GIAN LẬN MỚI NHẤT TRONG BẢNG GOLD:")
 display(spark.sql(f"""
     SELECT 
@@ -312,7 +335,7 @@ display(spark.sql(f"""
 """))
 
 # COMMAND ----------
-# 11. TRẢ VỀ KẾT QUẢ CHO MASTER ORCHESTRATOR
+# 12. TRẢ VỀ KẾT QUẢ CHO MASTER ORCHESTRATOR
 import json
 try:
     result_payload = {
