@@ -242,8 +242,11 @@ def score_transactions(
 ) -> DataFrame:
     """Apply documented VND fraud rules to a static transaction slice."""
     if sessions is not None:
+        # Scoring only needs product views for the bot rule.  Keep the input
+        # contract tolerant of test/legacy session profiles that do not carry
+        # the optional page_view_count field.
         profile_cols = sessions.select(
-            "session_id", "user_id", "session_duration_sec", "page_view_count", "product_view_count", "session_cart_total",
+            "session_id", "user_id", "session_duration_sec", "product_view_count", "session_cart_total",
         ).dropDuplicates(["session_id", "user_id"])
         enriched = txns.join(profile_cols, ["session_id", "user_id"], "left")
     else:
