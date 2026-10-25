@@ -1,6 +1,12 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "6"
+# ///
 # Databricks master entrypoint. BATCH runs the finite DAG; STREAMING stays active.
+
 # COMMAND ----------
+
 import json
 import time
 from datetime import datetime, timezone

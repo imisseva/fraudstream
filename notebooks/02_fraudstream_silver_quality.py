@@ -1,6 +1,12 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "6"
+# ///
 # Bronze -> Silver quality and quarantine. Continuous processing is in notebook 05.
+
 # COMMAND ----------
+
 import json
 import os
 import sys

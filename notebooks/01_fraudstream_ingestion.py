@@ -1,9 +1,15 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "6"
+# ///
 # ==============================================================================
 # FraudStream: Aiven Kafka -> Bronze Delta (finite availableNow ingestion)
 # This notebook is intended to run from the checked-out FraudStream project root.
 # ==============================================================================
+
 # COMMAND ----------
+
 import json
 import os
 import sys
