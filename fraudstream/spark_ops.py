@@ -12,6 +12,7 @@ from pyspark.sql.functions import (
     count,
     current_timestamp,
     date_format,
+    expr,
     from_json,
     hour,
     isnan,
@@ -138,14 +139,20 @@ def bronze_event_schema(event_schema: StructType) -> StructType:
 
 
 def normalize_event_time(df: DataFrame, source_column: str = "event_time") -> DataFrame:
+    # Photon/ANSI can still raise on a mismatched to_timestamp format.  The
+    # try_to_timestamp SQL function returns NULL instead, allowing the next
+    # supported format to be attempted safely.
+    def safe_timestamp(pattern: str):
+        return expr(f"try_to_timestamp(`{source_column}`, '{pattern}')")
+
     return df.withColumn(
         "clean_event_time",
         coalesce(
-            to_timestamp(col(source_column), "yyyy-MM-dd'T'HH:mm:ss'Z'"),
-            to_timestamp(col(source_column), "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'"),
-            to_timestamp(col(source_column), "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"),
-            to_timestamp(col(source_column), "yyyy-MM-dd'T'HH:mm:ss"),
-            to_timestamp(col(source_column), "dd/MM/yyyy HH:mm"),
+            safe_timestamp("yyyy-MM-dd'T'HH:mm:ss'Z'"),
+            safe_timestamp("yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'"),
+            safe_timestamp("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"),
+            safe_timestamp("yyyy-MM-dd'T'HH:mm:ss"),
+            safe_timestamp("dd/MM/yyyy HH:mm"),
         ),
     )
 
