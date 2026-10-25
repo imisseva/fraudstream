@@ -143,9 +143,9 @@ def normalize_event_time(df: DataFrame, source_column: str = "event_time") -> Da
         coalesce(
             to_timestamp(col(source_column), "yyyy-MM-dd'T'HH:mm:ss'Z'"),
             to_timestamp(col(source_column), "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'"),
+            to_timestamp(col(source_column), "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"),
             to_timestamp(col(source_column), "yyyy-MM-dd'T'HH:mm:ss"),
             to_timestamp(col(source_column), "dd/MM/yyyy HH:mm"),
-            to_timestamp(col(source_column)),
         ),
     )
 
