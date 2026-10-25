@@ -17,8 +17,9 @@ from pyspark.sql.functions import col, current_timestamp
 workspace_notebook = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
 workspace_file = "/Workspace/" + workspace_notebook.lstrip("/")
 project_root = os.path.dirname(os.path.dirname(workspace_file))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
+src_root = os.path.join(project_root, "src")
+if src_root not in sys.path:
+    sys.path.insert(0, src_root)
 
 from fraudstream.spark_ops import score_transactions
 

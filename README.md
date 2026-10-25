@@ -91,6 +91,7 @@ fraudstream/
 ├── pyproject.toml                  # Package metadata và dev dependencies
 ├── databricks.yml                  # Databricks Declarative Automation Bundle
 ├── conf/                           # Environment configuration templates
+├── docs/                           # Architecture and operations runbook
 │   ├── dev.yml
 │   └── prod.yml
 ├── resources/                      # Databricks jobs deployed by the bundle
